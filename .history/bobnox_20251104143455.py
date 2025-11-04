@@ -2,8 +2,13 @@ import os
 import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+# drag-and-drop removed for simplicity; use standard file dialog instead
 import threading
 import io
+import base64
+import shlex
+import urllib.parse
+from tkinter import scrolledtext
 from datetime import datetime
 
 # Optional SVG rendering support (cairosvg + Pillow). If unavailable we fall back to text button.
@@ -130,7 +135,6 @@ class FileOrganizerApp(tk.Tk):
         self.configure(bg="#1E1E1E")
         self.path_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready. Select a folder to begin.")
-        self.log_messages = []  # Store log messages for this run
 
         self.setup_styles()
         self.create_widgets()
@@ -177,14 +181,32 @@ class FileOrganizerApp(tk.Tk):
 
     def create_widgets(self):
         """Creates and positions all UI elements using grid for precise control."""
-        # Main Frame
-        main_frame = ttk.Frame(self, padding="20")
+        # Main Frame with smaller padding
+        main_frame = ttk.Frame(self, padding="14")
         main_frame.pack(expand=True, fill=tk.BOTH)
+
         main_frame.grid_columnconfigure(0, weight=1)
 
-        # Path Entry and Browse Button
+        # 1. Folder display area (drag & drop removed for simplicity)
+        self.drop_target = tk.Label(
+            main_frame,
+            text="📁 Select a folder using Browse",
+            font=("Inter", 12, "bold"),
+            relief="solid",
+            borderwidth=1,
+            bg=self.BG_MID, # Mid-dark background
+            fg="#AAAAAA",
+            padx=8,
+            pady=12,
+        )
+        self.drop_target.grid(row=1, column=0, sticky="ew", pady=(0, 10), ipady=6)
+
+        # Separator or alternative instruction
+        ttk.Label(main_frame, text="— OR —", foreground="#555555").grid(row=2, column=0, pady=5)
+
+        # 3. Path Entry and Browse Button
         path_frame = ttk.Frame(main_frame)
-        path_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        path_frame.grid(row=3, column=0, sticky="ew", pady=(10, 20))
         path_frame.grid_columnconfigure(0, weight=1)
 
         self.path_entry = ttk.Entry(path_frame, textvariable=self.path_var)
@@ -193,79 +215,127 @@ class FileOrganizerApp(tk.Tk):
         browse_button = ttk.Button(path_frame, text="Browse...", command=self.select_directory)
         browse_button.grid(row=0, column=1, padx=(10, 0))
 
-        # Organize Button - SVG icon only
+        # 4. Organize Button - use icon-only button (no full-width blue background)
         assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
-        svg_path = os.path.join(assets_dir, 'Sort--Streamline-Solar.svg')
+        svg_name = 'Sort--Streamline-Solar.svg'
+        svg_path = os.path.join(assets_dir, svg_name)
+
+        # Helper to create a small, icon-only tk.Button (fallback uses emoji)
+        def make_icon_button(image=None):
+            if image:
+                btn = tk.Button(main_frame, image=image, command=self.start_organizing_thread,
+                                bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.BG_DARK, activebackground=self.BG_DARK)
+            else:
+                # fallback emoji button if no image is available
+                btn = tk.Button(main_frame, text='🚀', command=self.start_organizing_thread,
+                                bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.BG_DARK, fg=self.FG_LIGHT, activebackground=self.BG_DARK)
+
+            # Center the icon button without stretching across the entire row
+            btn.grid(row=4, column=0, pady=(10, 20))
+            return btn
 
         self.organize_img = None
+        # Try to render the SVG into a PhotoImage; if it fails, fall back to emoji button
         if HAS_SVG_SUPPORT and os.path.exists(svg_path):
             try:
                 png_bytes = cairosvg.svg2png(url=svg_path, output_width=48, output_height=48)
                 img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
                 self.organize_img = ImageTk.PhotoImage(img)
-                self.organize_button = tk.Button(
-                    main_frame, 
-                    image=self.organize_img, 
-                    command=self.start_organizing_thread,
-                    bd=0, 
-                    highlightthickness=0, 
-                    relief='flat', 
-                    cursor='hand2', 
-                    bg=self.BG_DARK, 
-                    activebackground=self.BG_DARK
-                )
-            except Exception as e:
-                # If SVG rendering fails, show error and create minimal button
-                messagebox.showerror("Error", f"Failed to load SVG icon: {e}\nPlease install: pip install cairosvg Pillow")
-                self.organize_button = tk.Button(
-                    main_frame,
-                    text="▶",
-                    command=self.start_organizing_thread,
-                    font=("Arial", 24),
-                    bd=0,
-                    highlightthickness=0,
-                    relief='flat',
-                    cursor='hand2',
-                    bg=self.BG_DARK,
-                    fg=self.FG_LIGHT,
-                    activebackground=self.BG_DARK
-                )
+                self.organize_button = make_icon_button(image=self.organize_img)
+            except Exception:
+                self.organize_button = make_icon_button()
         else:
-            # Missing SVG file or dependencies
-            error_msg = "SVG icon not found" if not os.path.exists(svg_path) else "Missing cairosvg/Pillow"
-            messagebox.showwarning("Warning", f"{error_msg}\nPlease ensure assets/Sort--Streamline-Solar.svg exists and install: pip install cairosvg Pillow")
-            self.organize_button = tk.Button(
-                main_frame,
-                text="▶",
-                command=self.start_organizing_thread,
-                font=("Arial", 24),
-                bd=0,
-                highlightthickness=0,
-                relief='flat',
-                cursor='hand2',
-                bg=self.BG_DARK,
-                fg=self.FG_LIGHT,
-                activebackground=self.BG_DARK
-            )
+            self.organize_button = make_icon_button()
 
-        self.organize_button.grid(row=1, column=0, pady=(10, 20))
-
-        # Progress Bar
+        # 5. Progress Bar and Status
         self.progress_bar = ttk.Progressbar(main_frame, orient="horizontal", mode="determinate")
-        self.progress_bar.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        self.progress_bar.grid(row=5, column=0, sticky="ew", pady=(0, 5))
 
-        # Status Label
+        # Log console (read-only) to display per-run details
+        log_frame = ttk.Frame(main_frame)
+        log_frame.grid(row=6, column=0, sticky="nsew", pady=(8, 0))
+        main_frame.grid_rowconfigure(6, weight=1)
+
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, wrap=tk.WORD, state='disabled')
+        # Styling for dark theme
+        try:
+            self.log_text.configure(bg=self.BG_MID, fg=self.FG_LIGHT, insertbackground=self.FG_LIGHT)
+        except Exception:
+            pass
+        self.log_text.pack(expand=True, fill='both')
+
         self.status_label = ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel")
-        self.status_label.grid(row=3, column=0, sticky="w")
+        self.status_label.grid(row=7, column=0, sticky="w")
+
+        # Save log button
+        controls_frame = ttk.Frame(main_frame)
+        controls_frame.grid(row=8, column=0, sticky='e', pady=(6,0))
+        save_btn = ttk.Button(controls_frame, text="Save Log", command=self.save_log_dialog)
+        save_btn.pack(side='right')
 
 
     # --- UI EVENT HANDLERS ---
+
+    def handle_drop(self, event):
+        # DnD removed; keep this handler for backwards compatibility but ignore
+        return
 
     def select_directory(self):
         """Open a dialog to select a directory."""
         path = filedialog.askdirectory()
         if path:
             self.path_var.set(path)
+            self.update_drop_target_display(path)
+        else:
+             self.update_drop_target_display(None)
+
+    def update_drop_target_display(self, path):
+        """Updates the visual appearance of the drop target area."""
+        if path and os.path.isdir(path):
+            self.drop_target.config(
+                text=f"Folder Selected:\n{os.path.basename(path)}",
+                fg="#00D478" # Green confirmation color
+            )
+        else:
+            self.drop_target.config(
+                text="📁 Drag & Drop Folder Here",
+                fg="#AAAAAA"
+            )
+
+    def save_log_dialog(self):
+        """Open a Save As dialog and write the current log contents to disk.
+
+        If the log is empty, informs the user and does nothing. Runs on the
+        main thread (called from a button), and shows success/error dialogs.
+        """
+        try:
+            # Read the current log contents (ScrolledText may be disabled)
+            self.log_text.configure(state='normal')
+            content = self.log_text.get('1.0', 'end').rstrip()
+            self.log_text.configure(state='disabled')
+        except Exception:
+            content = ''
+
+        if not content.strip():
+            messagebox.showinfo("Save Log", "Log is empty — nothing to save.")
+            return
+
+        default_name = f"bobnox-log-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
+        save_path = filedialog.asksaveasfilename(
+            defaultextension='.txt',
+            initialfile=default_name,
+            filetypes=[('Text Files', '*.txt'), ('All Files', '*.*')]
+        )
+
+        if not save_path:
+            return  # user cancelled
+
+        try:
+            with open(save_path, 'w', encoding='utf-8') as fh:
+                fh.write(content)
+            messagebox.showinfo("Save Log", f"Log saved to:\n{save_path}")
+        except Exception as exc:
+            messagebox.showerror("Save Log", f"Failed to save log: {exc}")
 
     # --- THREADING AND ASYNCHRONOUS EXECUTION ---
     
@@ -277,6 +347,7 @@ class FileOrganizerApp(tk.Tk):
             return
 
         # Disable input while processing
+        # Support both ttk.Button (has .state) and tk.Button (use config)
         if hasattr(self.organize_button, 'state'):
             try:
                 self.organize_button.state(['disabled'])
@@ -288,12 +359,14 @@ class FileOrganizerApp(tk.Tk):
         self.status_var.set("Processing... Please wait.")
         self.progress_bar['value'] = 0
 
-        # Initialize log for this run
-        self.log_messages = []
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.log_messages.append(f"=== Organization started at {timestamp} ===")
-        self.log_messages.append(f"Directory: {directory_path}")
-        self.log_messages.append("")
+        # Initialize log console for this run
+        try:
+            self.log_text.configure(state='normal')
+            self.log_text.delete('1.0', 'end')
+            self.log_text.configure(state='disabled')
+        except Exception:
+            pass
+        self._append_log(f"=== Organization started at {datetime.now().isoformat()} ===")
 
         # Start the organization task in a new thread
         self.thread = threading.Thread(target=self.organize_action, args=(directory_path,), daemon=True)
@@ -314,9 +387,24 @@ class FileOrganizerApp(tk.Tk):
             self.progress_bar['value'] = progress_value * 100
         except Exception:
             pass
-        # Log the message
-        self.log_messages.append(message)
+        self._append_log(message)
         self.update_idletasks() # Force GUI redraw
+
+    def _append_log(self, text):
+        """Append a line to the log console in a thread-safe way."""
+        def do_append():
+            try:
+                self.log_text.configure(state='normal')
+                self.log_text.insert('end', text + "\n")
+                self.log_text.see('end')
+                self.log_text.configure(state='disabled')
+            except Exception:
+                pass
+
+        try:
+            self.after(0, do_append)
+        except Exception:
+            do_append()
 
     def organize_action(self, directory_path):
         """The function executed in the worker thread."""
@@ -332,39 +420,15 @@ class FileOrganizerApp(tk.Tk):
             else:
                 final_message = "✨ No files to move, directory is already tidy."
 
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_messages.append("")
-            self.log_messages.append(f"=== Organization completed at {timestamp} ===")
-            self.log_messages.append(f"Files moved: {files_moved}")
-
-            # Save log file
-            self._save_log_file(directory_path)
-
             self.after(0, lambda: messagebox.showinfo("Success", final_message))
             self.after(0, self.reset_ui)
             
         except FileNotFoundError as e:
-             self.log_messages.append(f"ERROR: {str(e)}")
-             self._save_log_file(directory_path)
              self.after(0, lambda: messagebox.showerror("Error", str(e)))
              self.after(0, self.reset_ui)
         except Exception as e:
-            self.log_messages.append(f"ERROR: {str(e)}")
-            self._save_log_file(directory_path)
             self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred: {e}"))
             self.after(0, self.reset_ui)
-
-    def _save_log_file(self, directory_path):
-        """Save log messages to a timestamped log file in the organized directory."""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            log_filename = f"bobnox-log-{timestamp}.txt"
-            log_path = os.path.join(directory_path, log_filename)
-            
-            with open(log_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(self.log_messages))
-        except Exception as e:
-            print(f"Failed to save log file: {e}")
 
     def reset_ui(self):
         """Resets the UI elements to the initial state."""
@@ -377,10 +441,12 @@ class FileOrganizerApp(tk.Tk):
             self.organize_button.config(state='normal')
         self.path_entry.state(['!disabled'])
         self.path_var.set("")
-        self.status_var.set("Ready. Select a folder to begin.")
+        self.status_var.set("Ready. Drop a folder or browse to begin.")
         self.progress_bar['value'] = 0
+        self.update_drop_target_display(None)
 
 
 if __name__ == "__main__":
+    # Note: To run this locally, you need tkinterdnd2: pip install tkinterdnd2
     app = FileOrganizerApp()
     app.mainloop()

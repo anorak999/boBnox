@@ -6,7 +6,6 @@ boBnox is a Python GUI application for organizing files into categorized folders
 
 ## Architecture Pattern
 
-VV
 **Separation of Concerns**:V
 
 - `FileOrganizer` class: Pure business logic, no GUI dependencies. Accepts callbacks for progress reporting.

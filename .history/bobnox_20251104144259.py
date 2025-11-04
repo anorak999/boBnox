@@ -2,8 +2,13 @@ import os
 import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+# drag-and-drop removed for simplicity; use standard file dialog instead
 import threading
 import io
+import base64
+import shlex
+import urllib.parse
+from tkinter import scrolledtext
 from datetime import datetime
 
 # Optional SVG rendering support (cairosvg + Pillow). If unavailable we fall back to text button.
@@ -130,7 +135,6 @@ class FileOrganizerApp(tk.Tk):
         self.configure(bg="#1E1E1E")
         self.path_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready. Select a folder to begin.")
-        self.log_messages = []  # Store log messages for this run
 
         self.setup_styles()
         self.create_widgets()
@@ -193,7 +197,7 @@ class FileOrganizerApp(tk.Tk):
         browse_button = ttk.Button(path_frame, text="Browse...", command=self.select_directory)
         browse_button.grid(row=0, column=1, padx=(10, 0))
 
-        # Organize Button - SVG icon only
+        # Organize Button - SVG icon
         assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
         svg_path = os.path.join(assets_dir, 'Sort--Streamline-Solar.svg')
 
@@ -214,39 +218,10 @@ class FileOrganizerApp(tk.Tk):
                     bg=self.BG_DARK, 
                     activebackground=self.BG_DARK
                 )
-            except Exception as e:
-                # If SVG rendering fails, show error and create minimal button
-                messagebox.showerror("Error", f"Failed to load SVG icon: {e}\nPlease install: pip install cairosvg Pillow")
-                self.organize_button = tk.Button(
-                    main_frame,
-                    text="▶",
-                    command=self.start_organizing_thread,
-                    font=("Arial", 24),
-                    bd=0,
-                    highlightthickness=0,
-                    relief='flat',
-                    cursor='hand2',
-                    bg=self.BG_DARK,
-                    fg=self.FG_LIGHT,
-                    activebackground=self.BG_DARK
-                )
+            except Exception:
+                self.organize_button = ttk.Button(main_frame, text="START ORGANIZATION", command=self.start_organizing_thread)
         else:
-            # Missing SVG file or dependencies
-            error_msg = "SVG icon not found" if not os.path.exists(svg_path) else "Missing cairosvg/Pillow"
-            messagebox.showwarning("Warning", f"{error_msg}\nPlease ensure assets/Sort--Streamline-Solar.svg exists and install: pip install cairosvg Pillow")
-            self.organize_button = tk.Button(
-                main_frame,
-                text="▶",
-                command=self.start_organizing_thread,
-                font=("Arial", 24),
-                bd=0,
-                highlightthickness=0,
-                relief='flat',
-                cursor='hand2',
-                bg=self.BG_DARK,
-                fg=self.FG_LIGHT,
-                activebackground=self.BG_DARK
-            )
+            self.organize_button = ttk.Button(main_frame, text="START ORGANIZATION", command=self.start_organizing_thread)
 
         self.organize_button.grid(row=1, column=0, pady=(10, 20))
 
@@ -288,13 +263,6 @@ class FileOrganizerApp(tk.Tk):
         self.status_var.set("Processing... Please wait.")
         self.progress_bar['value'] = 0
 
-        # Initialize log for this run
-        self.log_messages = []
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.log_messages.append(f"=== Organization started at {timestamp} ===")
-        self.log_messages.append(f"Directory: {directory_path}")
-        self.log_messages.append("")
-
         # Start the organization task in a new thread
         self.thread = threading.Thread(target=self.organize_action, args=(directory_path,), daemon=True)
         self.thread.start()
@@ -314,8 +282,6 @@ class FileOrganizerApp(tk.Tk):
             self.progress_bar['value'] = progress_value * 100
         except Exception:
             pass
-        # Log the message
-        self.log_messages.append(message)
         self.update_idletasks() # Force GUI redraw
 
     def organize_action(self, directory_path):
@@ -332,39 +298,15 @@ class FileOrganizerApp(tk.Tk):
             else:
                 final_message = "✨ No files to move, directory is already tidy."
 
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_messages.append("")
-            self.log_messages.append(f"=== Organization completed at {timestamp} ===")
-            self.log_messages.append(f"Files moved: {files_moved}")
-
-            # Save log file
-            self._save_log_file(directory_path)
-
             self.after(0, lambda: messagebox.showinfo("Success", final_message))
             self.after(0, self.reset_ui)
             
         except FileNotFoundError as e:
-             self.log_messages.append(f"ERROR: {str(e)}")
-             self._save_log_file(directory_path)
              self.after(0, lambda: messagebox.showerror("Error", str(e)))
              self.after(0, self.reset_ui)
         except Exception as e:
-            self.log_messages.append(f"ERROR: {str(e)}")
-            self._save_log_file(directory_path)
             self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred: {e}"))
             self.after(0, self.reset_ui)
-
-    def _save_log_file(self, directory_path):
-        """Save log messages to a timestamped log file in the organized directory."""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            log_filename = f"bobnox-log-{timestamp}.txt"
-            log_path = os.path.join(directory_path, log_filename)
-            
-            with open(log_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(self.log_messages))
-        except Exception as e:
-            print(f"Failed to save log file: {e}")
 
     def reset_ui(self):
         """Resets the UI elements to the initial state."""
@@ -382,5 +324,6 @@ class FileOrganizerApp(tk.Tk):
 
 
 if __name__ == "__main__":
+    # Note: To run this locally, you need tkinterdnd2: pip install tkinterdnd2
     app = FileOrganizerApp()
     app.mainloop()
