@@ -100,6 +100,37 @@ Each organization run automatically creates a log file with:
 
 **Log Format**: `bobnox-log-YYYYMMDD-HHMMSS.txt`
 
+## 🐳 Docker (headless)
+
+You can run boBnox in a container (headless) to organize folders on the host. This is suitable for publishing a container image to GitHub Packages / GitHub Container Registry.
+
+Build the image locally:
+
+```bash
+# from repository root
+docker build -t ghcr.io/<OWNER>/bobnox:latest .
+```
+
+Run the container and mount a host folder to `/data` inside the container:
+
+```bash
+docker run --rm -v /path/to/folder:/data ghcr.io/<OWNER>/bobnox:latest --path /data
+```
+
+Publish to GitHub Container Registry (example):
+
+```bash
+# Log in to GHCR
+echo $CR_PAT | docker login ghcr.io -u <GITHUB_USERNAME> --password-stdin
+docker tag ghcr.io/<OWNER>/bobnox:latest ghcr.io/<OWNER>/bobnox:latest
+docker push ghcr.io/<OWNER>/bobnox:latest
+```
+
+Notes:
+- The container runs a headless CLI (`organize_cli.py`) that calls the same organizing logic as the GUI.
+- Bind-mount the host folder you want organized into the container and pass `--path /data` (or the mountpoint you choose).
+
+
 ## 🎨 UI Specifications
 
 - **Window Size**: 480×360 pixels (minimal, compact)
