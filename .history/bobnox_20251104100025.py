@@ -6,10 +6,6 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 import threading
 import io
 import base64
-import shlex
-import urllib.parse
-from tkinter import scrolledtext
-from datetime import datetime
 
 # Optional SVG rendering support (cairosvg + Pillow). If unavailable we fall back to text button.
 HAS_SVG_SUPPORT = False
@@ -142,40 +138,39 @@ class FileOrganizerApp(TkinterDnD.Tk):
         """Configures the dark, flat look and feel."""
         style = ttk.Style(self)
         style.theme_use('clam')
-
-        # Background colors and fonts (attached to self for reuse)
+        
+        # Backgrounds (saved on self so other methods can access them)
         self.BG_DARK = "#1E1E1E"
         self.BG_MID = "#2D2D30"
         self.FG_LIGHT = "#FFFFFF"
-        self.ACCENT_COLOR = "#0078D4"  # Blue accent
+        self.ACCENT_COLOR = "#0078D4" # Blue accent
 
-        # Configure ttk styles
-        style.configure("TFrame", background=self.BG_DARK)
-        style.configure("TLabel", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 12))
-        style.configure("Title.TLabel", font=("Inter", 24, "bold"), foreground=self.ACCENT_COLOR)
-        style.configure("Status.TLabel", background=self.BG_DARK, foreground="#999999", font=("Inter", 10, "italic"))
+    style.configure("TFrame", background=self.BG_DARK)
+    style.configure("TLabel", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 12))
+    style.configure("Title.TLabel", font=("Inter", 24, "bold"), foreground=self.ACCENT_COLOR)
+    style.configure("Status.TLabel", background=self.BG_DARK, foreground="#999999", font=("Inter", 10, "italic"))
+        
+    # Entry/Input
+    style.configure("TEntry", fieldbackground=self.BG_MID, foreground=self.FG_LIGHT, borderwidth=0, relief="flat", padding=8)
+        
+    # Button Styles
+    style.configure("TButton", 
+            font=("Inter", 12, "bold"), 
+            background=self.ACCENT_COLOR, 
+            foreground=self.FG_LIGHT,
+            borderwidth=0, 
+            relief="flat", 
+            padding=[15, 8])
+    style.map("TButton",
+          background=[('active', '#005A9E'), ('disabled', '#555555')],
+          foreground=[('active', 'white')])
 
-        # Entry/Input
-        style.configure("TEntry", fieldbackground=self.BG_MID, foreground=self.FG_LIGHT, borderwidth=0, relief="flat", padding=8)
-
-        # Button Styles - prefer dark backgrounds so ttk Buttons don't create large blue bars
-        style.configure("TButton",
-                        font=("Inter", 12, "bold"),
-                        background=self.BG_DARK,
-                        foreground=self.FG_LIGHT,
-                        borderwidth=0,
-                        relief="flat",
-                        padding=[15, 8])
-        style.map("TButton",
-                  background=[('active', '#005A9E'), ('disabled', '#555555')],
-                  foreground=[('active', 'white')])
-
-        # Progress Bar
-        style.configure("TProgressbar",
-                        troughcolor=self.BG_MID,
-                        background=self.ACCENT_COLOR,
-                        troughrelief="flat",
-                        borderwidth=0)
+    # Progress Bar
+    style.configure("TProgressbar", 
+            troughcolor=self.BG_MID, 
+            background=self.ACCENT_COLOR, 
+            troughrelief="flat", 
+            borderwidth=0)
 
 
     def create_widgets(self):
@@ -256,51 +251,18 @@ class FileOrganizerApp(TkinterDnD.Tk):
         self.progress_bar = ttk.Progressbar(main_frame, orient="horizontal", length=500, mode="determinate")
         self.progress_bar.grid(row=5, column=0, sticky="ew", pady=(0, 5))
 
-        # Log console (read-only) to display per-run details
-        log_frame = ttk.Frame(main_frame)
-        log_frame.grid(row=6, column=0, sticky="nsew", pady=(8, 0))
-        main_frame.grid_rowconfigure(6, weight=1)
-
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, wrap=tk.WORD, state='disabled')
-        # Styling for dark theme
-        try:
-            self.log_text.configure(bg=self.BG_MID, fg=self.FG_LIGHT, insertbackground=self.FG_LIGHT)
-        except Exception:
-            pass
-        self.log_text.pack(expand=True, fill='both')
-
         self.status_label = ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel")
-        self.status_label.grid(row=7, column=0, sticky="w")
+        self.status_label.grid(row=6, column=0, sticky="w")
 
 
     # --- UI EVENT HANDLERS ---
 
     def handle_drop(self, event):
         """Handle the file drop event."""
-        # event.data can contain one or more paths, possibly wrapped in braces or as file:// URIs
-        data = event.data
-        try:
-            parts = shlex.split(data)
-            raw_path = parts[0]
-        except Exception:
-            raw_path = data.strip()
-
-        # strip braces
-        if raw_path.startswith('{') and raw_path.endswith('}'):
-            raw_path = raw_path[1:-1]
-
-        # handle file:// URIs
-        if raw_path.startswith('file://'):
-            parsed = urllib.parse.urlparse(raw_path)
-            raw_path = urllib.parse.unquote(parsed.path)
-
-        # On Windows the path may start with /C:/..., strip leading slash
-        if os.name == 'nt' and raw_path.startswith('/') and len(raw_path) > 2 and raw_path[2] == ':' :
-            raw_path = raw_path[1:]
-
-        if os.path.isdir(raw_path):
-            self.path_var.set(raw_path)
-            self.update_drop_target_display(raw_path)
+        path = event.data.strip('{}').split()[0] # In case multiple paths are dropped, take the first one
+        if os.path.isdir(path):
+            self.path_var.set(path)
+            self.update_drop_target_display(path)
         else:
             messagebox.showerror("Error", "Please drop a valid folder, not a file.")
             self.update_drop_target_display(None)
@@ -349,52 +311,16 @@ class FileOrganizerApp(TkinterDnD.Tk):
         self.status_var.set("Processing... Please wait.")
         self.progress_bar['value'] = 0
 
-        # Initialize log console for this run
-        try:
-            self.log_text.configure(state='normal')
-            self.log_text.delete('1.0', 'end')
-            self.log_text.configure(state='disabled')
-        except Exception:
-            pass
-        self._append_log(f"=== Organization started at {datetime.now().isoformat()} ===")
-
         # Start the organization task in a new thread
         self.thread = threading.Thread(target=self.organize_action, args=(directory_path,), daemon=True)
         self.thread.start()
 
     def update_status(self, message, progress_value):
-        """Thread-safe status updater: schedule UI updates on the main thread."""
-        try:
-            self.after(0, lambda: self._update_status_ui(message, progress_value))
-        except Exception:
-            self._update_status_ui(message, progress_value)
-
-    def _update_status_ui(self, message, progress_value):
-        """Actual UI update executed on the main thread."""
+        """Callback function to safely update GUI elements from the worker thread."""
         self.status_var.set(message)
         # Convert 0-1.0 progress to Tkinter's 0-100 scale
-        try:
-            self.progress_bar['value'] = progress_value * 100
-        except Exception:
-            pass
-        self._append_log(message)
+        self.progress_bar['value'] = progress_value * 100
         self.update_idletasks() # Force GUI redraw
-
-    def _append_log(self, text):
-        """Append a line to the log console in a thread-safe way."""
-        def do_append():
-            try:
-                self.log_text.configure(state='normal')
-                self.log_text.insert('end', text + "\n")
-                self.log_text.see('end')
-                self.log_text.configure(state='disabled')
-            except Exception:
-                pass
-
-        try:
-            self.after(0, do_append)
-        except Exception:
-            do_append()
 
     def organize_action(self, directory_path):
         """The function executed in the worker thread."""

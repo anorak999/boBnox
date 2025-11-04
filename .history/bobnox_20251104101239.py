@@ -349,52 +349,16 @@ class FileOrganizerApp(TkinterDnD.Tk):
         self.status_var.set("Processing... Please wait.")
         self.progress_bar['value'] = 0
 
-        # Initialize log console for this run
-        try:
-            self.log_text.configure(state='normal')
-            self.log_text.delete('1.0', 'end')
-            self.log_text.configure(state='disabled')
-        except Exception:
-            pass
-        self._append_log(f"=== Organization started at {datetime.now().isoformat()} ===")
-
         # Start the organization task in a new thread
         self.thread = threading.Thread(target=self.organize_action, args=(directory_path,), daemon=True)
         self.thread.start()
 
     def update_status(self, message, progress_value):
-        """Thread-safe status updater: schedule UI updates on the main thread."""
-        try:
-            self.after(0, lambda: self._update_status_ui(message, progress_value))
-        except Exception:
-            self._update_status_ui(message, progress_value)
-
-    def _update_status_ui(self, message, progress_value):
-        """Actual UI update executed on the main thread."""
+        """Callback function to safely update GUI elements from the worker thread."""
         self.status_var.set(message)
         # Convert 0-1.0 progress to Tkinter's 0-100 scale
-        try:
-            self.progress_bar['value'] = progress_value * 100
-        except Exception:
-            pass
-        self._append_log(message)
+        self.progress_bar['value'] = progress_value * 100
         self.update_idletasks() # Force GUI redraw
-
-    def _append_log(self, text):
-        """Append a line to the log console in a thread-safe way."""
-        def do_append():
-            try:
-                self.log_text.configure(state='normal')
-                self.log_text.insert('end', text + "\n")
-                self.log_text.see('end')
-                self.log_text.configure(state='disabled')
-            except Exception:
-                pass
-
-        try:
-            self.after(0, do_append)
-        except Exception:
-            do_append()
 
     def organize_action(self, directory_path):
         """The function executed in the worker thread."""
