@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run boBnox GUI in Docker with X11 forwarding
+# Run boBnox GUI in Docker with Wayland/X11 support
 
 IMAGE_NAME="bobnox-gui:latest"
 
@@ -12,18 +12,17 @@ fi
 echo "Starting boBnox GUI..."
 echo "Close the application window to stop the container."
 
-# Allow X server connections from Docker
-xhost +local:docker
-
-# Run the container with X11 forwarding
+# Use host network and share the entire runtime directory for Wayland
 docker run --rm \
+    --net=host \
     -e DISPLAY=$DISPLAY \
-    -v /tmp/.X11-unix:/tmp/.X11-unix:ro \
+    -e WAYLAND_DISPLAY=$WAYLAND_DISPLAY \
+    -e XDG_RUNTIME_DIR=/run/user/1000 \
+    -e QT_X11_NO_MITSHM=1 \
+    -v /run/user/1000:/run/user/1000 \
     -v $HOME:$HOME \
+    --ipc=host \
     --name bobnox-gui \
     $IMAGE_NAME
-
-# Revoke X server access after container stops
-xhost -local:docker
 
 echo "boBnox GUI stopped."

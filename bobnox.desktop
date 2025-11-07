@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=boBnox File Organizer
+Comment=Organize files into categorized folders
+Exec=/home/anorak/Works/bobnox/run-bobnox.sh
+Icon=folder-open
+Terminal=false
+Categories=Utility;FileTools;
+StartupNotify=true
