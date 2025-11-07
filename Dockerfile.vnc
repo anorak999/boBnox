@@ -1,0 +1,47 @@
+# Dockerfile for boBnox GUI with noVNC (web-based access)
+FROM python:3.11-slim
+
+# Install VNC server, window manager, and dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    x11vnc \
+    xvfb \
+    fluxbox \
+    websockify \
+    novnc \
+    python3-tk \
+    build-essential \
+    libffi-dev \
+    libxml2 \
+    libxslt1.1 \
+    libjpeg-dev \
+    libpng-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy application files
+COPY bobnox.py ./
+COPY assets ./assets
+
+# Install Python dependencies
+RUN pip install --no-cache-dir cairosvg Pillow || pip install --no-cache-dir Pillow
+
+# Copy startup script
+COPY docker-start-vnc.sh /app/
+RUN chmod +x /app/docker-start-vnc.sh
+
+# Create non-root user
+RUN useradd -m -s /bin/bash bobnox && \
+    chown -R bobnox:bobnox /app
+USER bobnox
+
+# Expose noVNC port
+EXPOSE 6080
+
+# Set environment variables
+ENV DISPLAY=:99
+ENV RESOLUTION=800x600
+
+# Start VNC server and application
+CMD ["/app/docker-start-vnc.sh"]
