@@ -1,0 +1,39 @@
+# Dockerfile for boBnox GUI with X11 support
+FROM python:3.11-slim
+
+# Install X11 and GUI dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-tk \
+    x11-apps \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
+    libxtst6 \
+    libxi6 \
+    build-essential \
+    libffi-dev \
+    libxml2 \
+    libxslt1.1 \
+    libjpeg-dev \
+    libpng-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy application files
+COPY bobnox.py ./
+COPY assets ./assets
+
+# Install Python dependencies
+RUN pip install --no-cache-dir cairosvg Pillow || pip install --no-cache-dir Pillow
+
+# Create non-root user
+RUN useradd -m -s /bin/bash bobnox || true
+USER bobnox
+
+# Set display environment variable (will be overridden at runtime)
+ENV DISPLAY=:0
+
+# Run the GUI application
+CMD ["python", "bobnox.py"]
