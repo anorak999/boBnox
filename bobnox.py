@@ -9,6 +9,9 @@ import hashlib
 import sqlite3
 import time
 import stat
+import math
+import struct
+import collections
 import logging
 import threading
 import asyncio
@@ -402,6 +405,199 @@ class GtkConflictResolver:
 
 
 # ======================================================================
+# FEATURE 11: Cryptographic Chunk-Level Deduplication & Reflink Engine
+# ======================================================================
+class ReflinkDeduplicator:
+    FICLONE = 0x40049409
+
+    def __init__(self, chunk_size: int = 65536):
+        self.chunk_size = chunk_size
+        self._libc = None
+        try:
+            import ctypes
+            self._libc = ctypes.CDLL(None)
+        except Exception:
+            pass
+
+    def calculate_signature(self, file_path: str) -> str:
+        hasher = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(self.chunk_size):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    def deduplicate(self, src: str, dest: str, try_reflink: bool = True) -> str:
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"Source missing: {src}")
+
+        if try_reflink and self._libc:
+            try:
+                with open(src, "rb") as src_f, open(dest, "wb+") as dest_f:
+                    import fcntl
+                    fcntl.ioctl(dest_f.fileno(), self.FICLONE, src_f.fileno())
+                return "COW_REFLINK"
+            except (IOError, OSError):
+                if os.path.exists(dest):
+                    os.remove(dest)
+
+        os.link(src, dest)
+        return "HARDLINK"
+
+
+# ======================================================================
+# FEATURE 12: Structural Integrity Validation (Magic Byte Sniffing)
+# ======================================================================
+class StructuralIntegrityValidator:
+    def __init__(self):
+        self.signature_matrix = {
+            ".pdf": b"\x25\x50\x44\x46", ".zip": b"\x50\x4B\x03\x04",
+            ".jar": b"\x50\x4B\x03\x04", ".png": b"\x89\x50\x4E\x47",
+            ".elf": b"\x7F\x45\x4C\x46", ".jpg": b"\xFF\xD8\xFF",
+            ".gif": b"\x47\x49\x46\x38", ".mp3": b"\x49\x44\x33",
+            ".mp4": b"\x00\x00\x00\x18", ".py": None,
+        }
+        self.max_read = 16
+
+    def analyze_file(self, file_path: str) -> dict:
+        _, ext = os.path.splitext(file_path.lower())
+        if ext not in self.signature_matrix:
+            return {"status": "SKIPPED", "reason": "Unknown extension"}
+        expected = self.signature_matrix[ext]
+        if expected is None:
+            return {"status": "VALIDATED", "type": "TEXT"}
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(self.max_read)
+        except IOError:
+            return {"status": "ERROR", "reason": "Unreadable"}
+        if header.startswith(expected):
+            return {"status": "VALIDATED", "type": ext}
+        return {"status": "ANOMALY", "action": "QUARANTINE", "ext": ext}
+
+
+# ======================================================================
+# FEATURE 13: Shannon Entropy Analytics
+# ======================================================================
+class ShannonEntropyAnalyzer:
+    def calculate_entropy(self, file_path: str) -> float:
+        if not os.path.exists(file_path) or os.path.islink(file_path):
+            return 0.0
+        size = os.path.getsize(file_path)
+        if size == 0:
+            return 0.0
+        with open(file_path, "rb") as f:
+            data = f.read()
+        counts = collections.Counter(data)
+        entropy = 0.0
+        for count in counts.values():
+            p = count / size
+            entropy -= p * math.log2(p)
+        return round(entropy, 4)
+
+    def classify(self, file_path: str) -> dict:
+        e = self.calculate_entropy(file_path)
+        if e < 4.5:
+            tier, action = "STRUCTURED", "STANDARD_SORT"
+        elif e <= 6.8:
+            tier, action = "COMPILED_BINARY", "VERIFY_METADATA"
+        else:
+            tier, action = "ENCRYPTED_RANDOM", "QUARANTINE"
+        return {"file": file_path, "entropy": e, "tier": tier, "action": action}
+
+
+# ======================================================================
+# FEATURE 14: POSIX Extended Attributes (xattr) Metadata Layering
+# ======================================================================
+class InodeMetadataLayer:
+    def __init__(self):
+        self._has_xattr = hasattr(os, "setxattr")
+
+    def write_states(self, file_path: str, metadata: dict) -> bool:
+        if not self._has_xattr:
+            return False
+        try:
+            for key, val in metadata.items():
+                os.setxattr(file_path, f"user.bobnox.{key}", val.encode("utf-8"))
+            return True
+        except OSError:
+            return False
+
+    def read_states(self, file_path: str, keys: list) -> dict:
+        result = {}
+        if not self._has_xattr:
+            return {k: None for k in keys}
+        for key in keys:
+            try:
+                result[key] = os.getxattr(file_path, f"user.bobnox.{key}").decode("utf-8")
+            except OSError:
+                result[key] = None
+        return result
+
+
+# ======================================================================
+# FEATURE 15: Kernel-Driven Inotify Daemon (ctypes native)
+# ======================================================================
+class KernelInotifyDaemon:
+    IN_CLOSE_WRITE = 0x00000008
+    IN_MOVED_TO = 0x00000080
+    EVENT_FMT = "iIII"
+    EVENT_SIZE = struct.calcsize(EVENT_FMT)
+
+    def __init__(self, watch_dir: str, callback):
+        self.watch_dir = watch_dir
+        self.callback = callback
+        self._running = False
+        self._fd = -1
+        self._wd = -1
+        self._thread = None
+        try:
+            import ctypes
+            self._libc = ctypes.CDLL(None)
+            self._fd = self._libc.inotify_init()
+        except Exception:
+            self._fd = -1
+
+    def start(self):
+        if self._fd < 0:
+            return
+        mask = self.IN_CLOSE_WRITE | self.IN_MOVED_TO
+        self._wd = self._libc.inotify_add_watch(self._fd, self.watch_dir.encode(), mask)
+        if self._wd < 0:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._poll, daemon=True)
+        self._thread.start()
+
+    def _poll(self):
+        import select
+        while self._running:
+            r, _, _ = select.select([self._fd], [], [], 1.0)
+            if not r:
+                continue
+            try:
+                buf = os.read(self._fd, 4096)
+            except OSError:
+                break
+            offset = 0
+            while offset < len(buf):
+                if len(buf) - offset < self.EVENT_SIZE:
+                    break
+                wd, mask, cookie, nlen = struct.unpack_from(self.EVENT_FMT, buf, offset)
+                offset += self.EVENT_SIZE
+                if nlen > 0:
+                    name = buf[offset:offset + nlen].decode().rstrip("\x00")
+                    offset += nlen
+                    self.callback(os.path.join(self.watch_dir, name))
+
+    def stop(self):
+        self._running = False
+        if self._wd >= 0 and self._fd >= 0:
+            self._libc.inotify_rm_watch(self._fd, self._wd)
+        if self._fd >= 0:
+            os.close(self._fd)
+
+
+# ======================================================================
 # FEATURE 9: Headless CLI Control Architecture
 # ======================================================================
 class BobnoxCLI:
@@ -551,6 +747,10 @@ class FileOrganizer:
         self.ledger = TransactionLedger()
         self.mime_validator = MimeValidator() if HAS_MAGIC else None
         self.dedup_engine = DeduplicationEngine()
+        self.reflink_dedup = ReflinkDeduplicator()
+        self.struct_validator = StructuralIntegrityValidator()
+        self.entropy_analyzer = ShannonEntropyAnalyzer()
+        self.xattr_layer = InodeMetadataLayer()
         self.token_parser = TokenParser()
         self.dest_pattern = None
         self.conflict_resolver = GtkConflictResolver()
@@ -735,7 +935,7 @@ class BoBnoxApp(ctk.CTk):
         self.organizer = FileOrganizer(self.app_config)
         self.log_messages = []
 
-        self.title("BoBnox v2.0.4")
+        self.title("BoBnox v2.1.0")
         self.geometry("1100x800")
         self.minsize(900, 650)
 
@@ -793,7 +993,7 @@ class BoBnoxApp(ctk.CTk):
         sidebar.grid_propagate(False)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(pady=(24, 4), padx=20, anchor="w")
-        ctk.CTkLabel(sidebar, text="v2.0.4", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
+        ctk.CTkLabel(sidebar, text="v2.1.0", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
 
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=16)
 
