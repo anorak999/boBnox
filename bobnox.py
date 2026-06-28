@@ -953,6 +953,8 @@ class SettingsDialog(ctk.CTkToplevel):
 # ======================================================================
 # MAIN APPLICATION (Bento UI v2.3.0)
 # ======================================================================
+# MAIN APPLICATION (Bento UI v3.0.0 - Stability Fixed)
+# ======================================================================
 class BoBnoxApp(ctk.CTk):
 
     def __init__(self):
@@ -961,10 +963,11 @@ class BoBnoxApp(ctk.CTk):
         self.app_config = load_config()
         self.organizer = FileOrganizer(self.app_config)
         self.log_messages = []
+        self.running = False
 
-        self.title("BoBnox v2.3.0")
-        self.geometry("1100x700")
-        self.minsize(900, 600)
+        self.title("BoBnox v3.0.0")
+        self.geometry("1200x750")
+        self.minsize(1000, 650)
 
         if not geist_available():
             install_geist_fonts()
@@ -979,7 +982,6 @@ class BoBnoxApp(ctk.CTk):
             except Exception:
                 pass
 
-        # Color tuples
         self.C_BG = (BG_LIGHT, BG_DARK)
         self.C_CARD = (CARD_LIGHT, CARD_DARK)
         self.C_TEXT = (TEXT_LIGHT, TEXT_DARK)
@@ -1001,8 +1003,6 @@ class BoBnoxApp(ctk.CTk):
         self.recursive_var = tk.BooleanVar(value=self.app_config.get("organize_subdirectories", False))
         self._watcher = None
 
-        # Grid layout: sidebar + 2 main columns
-        # Fix 1: Uniform symmetrical layout scaling
         self.grid_columnconfigure(0, weight=0, minsize=250)
         self.grid_columnconfigure(1, weight=1, minsize=420)
         self.grid_columnconfigure(2, weight=1, minsize=420)
@@ -1015,21 +1015,33 @@ class BoBnoxApp(ctk.CTk):
 
         self._create_widgets()
 
+    def _log(self, msg: str):
+        """Thread-safe bounded console log (max 500 lines)."""
+        self.log_messages.append(msg)
+        self.after(0, lambda: self._do_log(msg))
+
+    def _do_log(self, msg: str):
+        self.console.configure(state="normal")
+        self.console.insert("end", msg + "\n")
+        # Cap at 500 lines to prevent unbounded growth
+        content = self.console.get("1.0", "end")
+        lines = content.split("\n")
+        if len(lines) > 500:
+            self.console.delete("1.0", f"{len(lines) - 500}.0")
+        self.console.see("end")
+        self.console.configure(state="disabled")
+
     def _create_widgets(self):
         gf = "Geist" if geist_available() else ("Helvetica" if IS_MACOS else "Sans")
 
-        # ======================================================================
-        # SIDEBAR SYSTEM
-        # ======================================================================
+        # SIDEBAR
         sidebar = ctk.CTkFrame(self, corner_radius=APP_RADIUS, fg_color=self.C_CARD, bg_color=self.C_BG)
         sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew", padx=12, pady=12)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(anchor="w", padx=20, pady=(24, 4))
-        ctk.CTkLabel(sidebar, text="v2.3.0 - Advanced Engine", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
-
+        ctk.CTkLabel(sidebar, text="v3.0.0 - Stable Engine", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
 
-        # Theme toggle
         self.theme_switch = ctk.CTkSwitch(sidebar, text="Dark Mode", command=self._toggle_theme, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
         self.theme_switch.pack(anchor="w", padx=20, pady=8)
         if self.app_config.get("dark_mode", True):
@@ -1039,22 +1051,17 @@ class BoBnoxApp(ctk.CTk):
             self.theme_switch.configure(text="Light Mode")
 
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
-
         ctk.CTkLabel(sidebar, text="Engine", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(8, 4))
         self.daemon_switch = ctk.CTkSwitch(sidebar, text="⟲ Daemon (inotify)", font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_GREEN, fg_color=self.C_BORDER, command=self._toggle_daemon)
         self.daemon_switch.pack(anchor="w", padx=20, pady=4)
         self.mime_switch = ctk.CTkSwitch(sidebar, text="⎔ MIME Sorting", font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
         self.mime_switch.pack(anchor="w", padx=20, pady=4)
-
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
-
         ctk.CTkLabel(sidebar, text="Ledger", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(8, 4))
         self.ledger_status = ctk.CTkLabel(sidebar, text=f"Pending: {self.organizer.ledger.get_pending_count()}", font=self.F_LABEL, text_color=ACCENT_GREEN)
         self.ledger_status.pack(anchor="w", padx=20, pady=4)
 
-        # ======================================================================
-        # MAIN CONTENT GRID (2 columns)
-        # ======================================================================
+        # CONTENT GRID
         content = ctk.CTkFrame(self, fg_color="transparent", bg_color=self.C_BG)
         content.grid(row=0, column=1, columnspan=2, rowspan=4, padx=4, pady=12, sticky="nsew")
         content.grid_columnconfigure(0, weight=1, minsize=420)
@@ -1064,12 +1071,12 @@ class BoBnoxApp(ctk.CTk):
         content.grid_rowconfigure(2, weight=2, minsize=240)
         content.grid_rowconfigure(3, weight=2, minsize=220)
 
-        # --- ROW 0: Branding + Options ---
+        # ROW 0: Branding + Options
         brand = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         brand.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
         ctk.CTkLabel(brand, text="boBnox", text_color=self.C_TEXT, font=self.F_TITLE).pack(fill="x", padx=20, pady=(16, 4))
         ctk.CTkLabel(brand, text="File Organization Engine", text_color=self.C_MUTED, font=self.F_LABEL).pack(fill="x", padx=20, pady=(0, 4))
-        ctk.CTkLabel(brand, text=f"SQLite Ledger Active | Pending: {self.organizer.ledger.get_pending_count()}", text_color=ACCENT_GREEN, font=(gf, 10)).pack(fill="x", padx=20, pady=(0, 12))
+        ctk.CTkLabel(brand, text=f"SQLite Ledger | Pending: {self.organizer.ledger.get_pending_count()}", text_color=ACCENT_GREEN, font=(gf, 10)).pack(fill="x", padx=20, pady=(0, 12))
 
         opts = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         opts.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
@@ -1081,18 +1088,17 @@ class BoBnoxApp(ctk.CTk):
         self.sw_dedup = ctk.CTkSwitch(opts, text="⎔ Dedup Scan", font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
         self.sw_dedup.pack(fill="x", padx=20, pady=(4, 12))
 
-        # --- ROW 1: Path Strip ---
+        # ROW 1: Path Strip
         path_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         path_card.grid(row=1, column=0, columnspan=2, padx=6, pady=6, sticky="ew")
-        ctk.CTkLabel(path_card, text="Target Directory", text_color=self.C_MUTED, font=self.F_SUB).pack(fill="x", padx=20, pady=(10, 4))
         pf = ctk.CTkFrame(path_card, fg_color="transparent", bg_color=self.C_CARD)
-        pf.pack(fill="x", padx=16, pady=(0, 14))
+        pf.pack(fill="x", padx=16, pady=12)
         self.path_entry = ctk.CTkEntry(pf, placeholder_text="Select directory...", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=self.F_CONSOLE, height=36, corner_radius=BTN_RADIUS, textvariable=self.path_var)
         self.path_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.browse_btn = ctk.CTkButton(pf, text="Browse Scope", font=self.F_BTN, fg_color=ACCENT_BLUE, hover_color="#004BB3", height=36, width=120, corner_radius=BTN_RADIUS, command=self._select_directory)
         self.browse_btn.pack(side="left")
 
-        # --- ROW 2: Dedup Rules + Rename Config ---
+        # ROW 2: Dedup + Rename
         dedup_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         dedup_card.grid(row=2, column=0, padx=6, pady=6, sticky="nsew")
         ctk.CTkLabel(dedup_card, text="Deduplication Engine", text_color=self.C_MUTED, font=(gf, 14, "bold")).pack(fill="x", padx=16, pady=(12, 8))
@@ -1113,26 +1119,22 @@ class BoBnoxApp(ctk.CTk):
         self.txt_template = ctk.CTkEntry(rename_card, placeholder_text="${creation_date}/${ext}/", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=self.F_LABEL, corner_radius=BTN_RADIUS)
         self.txt_template.pack(fill="x", padx=16, pady=(0, 12))
 
-        # --- ROW 3: Operations + Monitor ---
+        # ROW 3: Operations + Monitor
         ops_frame = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         ops_frame.grid(row=3, column=0, padx=6, pady=6, sticky="nsew")
         ops_frame.grid_columnconfigure((0, 1), weight=1)
         ops_frame.grid_rowconfigure((0, 1), weight=1)
 
-        org_kw = dict(text="▶ Organize", font=self.F_BTN, fg_color=ACCENT_GREEN, hover_color="#1B9E46", text_color="#000000", height=40, corner_radius=BTN_RADIUS, command=self._start_organizing)
-        self.organize_btn = ctk.CTkButton(ops_frame, **org_kw)
+        self.organize_btn = ctk.CTkButton(ops_frame, text="▶ Organize", font=self.F_BTN, fg_color=ACCENT_GREEN, hover_color="#1B9E46", text_color="#000000", height=40, corner_radius=BTN_RADIUS, command=self._start_organizing)
         self.organize_btn.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-
         self.undo_btn = ctk.CTkButton(ops_frame, text="⟲ Undo", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=BTN_RADIUS, command=self._undo_action, state="disabled")
         self.undo_btn.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-
         self.open_folder_btn = ctk.CTkButton(ops_frame, text="📁 Open Folder", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=BTN_RADIUS, command=self._open_folder)
         self.open_folder_btn.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
-
         self.settings_btn = ctk.CTkButton(ops_frame, text="⚙ Settings", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=BTN_RADIUS, command=self._open_settings)
         self.settings_btn.grid(row=1, column=1, padx=10, pady=(0, 10), sticky="nsew")
 
-        # Process Monitor
+        # Process Monitor (with pack_propagate(False) fix)
         monitor = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         monitor.grid(row=3, column=1, padx=6, pady=6, sticky="nsew")
         monitor.grid_rowconfigure(2, weight=1)
@@ -1143,19 +1145,23 @@ class BoBnoxApp(ctk.CTk):
         status_frame = ctk.CTkFrame(monitor, fg_color="transparent", bg_color=self.C_CARD)
         status_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 6))
 
-        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=ACCENT_GREEN, font=self.F_SUB)
+        # FIXED WIDTH status label prevents reflow jitter
+        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=ACCENT_GREEN, font=self.F_SUB, width=350, anchor="w")
         self.status_label.pack(side="left")
 
+        # FIXED WIDTH progress label
+        self.progress_label = ctk.CTkLabel(status_frame, text="0%", text_color=self.C_MUTED, font=self.F_SUB, width=50, anchor="e")
+        self.progress_label.pack(side="right")
+
         self.progress_bar = ctk.CTkProgressBar(status_frame, height=6, fg_color=self.C_BORDER, progress_color=ACCENT_BLUE)
-        self.progress_bar.pack(side="right", fill="x", expand=True, padx=(12, 0))
+        self.progress_bar.pack(side="right", fill="x", expand=True, padx=(12, 8))
         self.progress_bar.set(0.0)
 
         self.console = ctk.CTkTextbox(monitor, fg_color=self.C_ENTRY, text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=BTN_RADIUS, border_color=self.C_BORDER, border_width=1)
         self.console.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
-        self.console.insert("end", ">> boBnox v2.3.0 initialized.\n>> Awaiting target directory...\n")
+        self.console.insert("end", ">> boBnox v3.0.0 initialized.\n>> Awaiting target directory...\n")
         self.console.configure(state="disabled")
 
-    # --- Theme ---
     def _toggle_theme(self):
         if self.theme_switch.get() == 1:
             ctk.set_appearance_mode("Dark")
@@ -1167,39 +1173,28 @@ class BoBnoxApp(ctk.CTk):
             self.app_config["dark_mode"] = False
         save_config(self.app_config)
 
-    # --- Daemon ---
     def _toggle_daemon(self):
         path = self.path_var.get()
         if self.daemon_switch.get() == 1:
             if not path or not os.path.isdir(path):
-                self.after(0, lambda: self._log("[WARN] Select a valid directory first."))
+                self._log("[WARN] Select a valid directory first.")
                 self.after(0, lambda: self.daemon_switch.deselect())
                 return
             self._watcher = KernelInotifyDaemon(path, lambda p: self.after(0, lambda: self._handle_watched_file(p, path)))
             self._watcher.start()
-            self.after(0, lambda: self._log(f"[DAEMON] Watching: {path}"))
+            self._log(f"[DAEMON] Watching: {path}")
         else:
             if self._watcher:
                 self._watcher.stop()
                 self._watcher = None
-                self.after(0, lambda: self._log("[DAEMON] Stopped."))
+                self._log("[DAEMON] Stopped.")
 
     def _handle_watched_file(self, file_path: str, watch_dir: str):
-        """Thread-safe handler for files detected by inotify daemon."""
         try:
             self.organizer.organize_single_file(file_path, watch_dir)
             self._log(f"[DAEMON] Processed: {os.path.basename(file_path)}")
         except Exception as e:
-            err = str(e)
-            self._log(f"[DAEMON] Error: {err}")
-
-    # --- Actions ---
-    def _log(self, msg: str):
-        self.log_messages.append(msg)
-        self.console.configure(state="normal")
-        self.console.insert("end", msg + "\n")
-        self.console.see("end")
-        self.console.configure(state="disabled")
+            self._log(f"[DAEMON] Error: {str(e)}")
 
     def _select_directory(self):
         try:
@@ -1224,7 +1219,6 @@ class BoBnoxApp(ctk.CTk):
             open_in_nautilus(path)
 
     def _open_settings(self):
-        # Prevent multiple settings windows stacking
         if hasattr(self, '_settings_win') and self._settings_win is not None:
             try:
                 if self._settings_win.winfo_exists():
@@ -1255,9 +1249,15 @@ class BoBnoxApp(ctk.CTk):
         if not path or not os.path.isdir(path):
             self._log("[ERROR] Select a valid directory.")
             return
+        if self.running:
+            return
+        # LOCK window during operation
+        self.running = True
+        self.resizable(False, False)
         self._set_ui_state(True)
         self.after(0, lambda: self.status_label.configure(text="Processing...", text_color="#FFD60A"))
         self.after(0, lambda: self.progress_bar.set(0.0))
+        self.after(0, lambda: self.progress_label.configure(text="0%"))
         self._log(f"[INFO] Organizing: {path}")
         threading.Thread(target=self._organize_thread, args=(path, self.dry_run_var.get()), daemon=True).start()
 
@@ -1272,24 +1272,35 @@ class BoBnoxApp(ctk.CTk):
             msg = f"Preview: {moved} files." if dry_run and moved else f"Done! Moved {moved} files." if moved else "No files to move."
             self.after(0, lambda: self._log(f"\n[DONE] {msg}"))
             self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=ACCENT_GREEN))
+            self.after(0, lambda: self.progress_label.configure(text="100%"))
             self.after(0, lambda: self.undo_btn.configure(state="normal" if moved > 0 and not dry_run else "disabled"))
             self.after(0, lambda: self.ledger_status.configure(text=f"Pending: {self.organizer.ledger.get_pending_count()}"))
-            self.after(0, lambda: self._set_ui_state(False))
         except Exception as e:
             err = str(e)
             self.after(0, lambda: self._log(f"[ERROR] {err}"))
             self.after(0, lambda: self.status_label.configure(text="Error", text_color=ACCENT_CORAL))
+        finally:
+            # RESTORE UI
+            self.running = False
+            self.after(0, lambda: self.resizable(True, True))
             self.after(0, lambda: self._set_ui_state(False))
 
     def _update_status(self, message: str, progress: float):
         self.after(0, lambda: self._do_update_status(message, progress))
 
     def _do_update_status(self, message: str, progress: float):
-        self.status_label.configure(text=message, text_color=self.C_TEXT)
+        # Truncate long messages to prevent label reflow
+        display = message[:50] + "..." if len(message) > 50 else message
+        self.status_label.configure(text=display, text_color=self.C_TEXT)
         self.progress_bar.set(progress)
+        self.progress_label.configure(text=f"{int(progress * 100)}%")
         self._log(f"  {message}")
 
     def _undo_action(self):
+        if self.running:
+            return
+        self.running = True
+        self.resizable(False, False)
         self._set_ui_state(True)
         self.after(0, lambda: self.status_label.configure(text="Undoing...", text_color="#FFD60A"))
         threading.Thread(target=self._undo_thread, daemon=True).start()
@@ -1299,12 +1310,14 @@ class BoBnoxApp(ctk.CTk):
             restored = self.organizer.undo_last_organization(self._update_status)
             self.after(0, lambda: self._log(f"\n[DONE] Restored {restored} files."))
             self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=ACCENT_GREEN))
-            self.after(0, lambda: self._set_ui_state(False))
             self.after(0, lambda: self.ledger_status.configure(text=f"Pending: {self.organizer.ledger.get_pending_count()}"))
             self.after(0, lambda: self.undo_btn.configure(state="disabled"))
         except Exception as e:
             err = str(e)
             self.after(0, lambda: self._log(f"[ERROR] Undo failed: {err}"))
+        finally:
+            self.running = False
+            self.after(0, lambda: self.resizable(True, True))
             self.after(0, lambda: self._set_ui_state(False))
 
 
