@@ -1066,7 +1066,7 @@ class BoBnoxApp(ctk.CTk):
         content.grid(row=0, column=1, columnspan=2, rowspan=4, padx=4, pady=12, sticky="nsew")
         content.grid_columnconfigure(0, weight=1, minsize=420)
         content.grid_columnconfigure(1, weight=1, minsize=420)
-        content.grid_rowconfigure(0, weight=1, minsize=140)
+        content.grid_rowconfigure(0, weight=1, minsize=180)
         content.grid_rowconfigure(1, weight=0, minsize=70)
         content.grid_rowconfigure(2, weight=2, minsize=240)
         content.grid_rowconfigure(3, weight=2, minsize=220)
@@ -1080,13 +1080,14 @@ class BoBnoxApp(ctk.CTk):
 
         opts = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         opts.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
-        ctk.CTkLabel(opts, text="Global Options", text_color=self.C_MUTED, font=self.F_SUB).pack(fill="x", padx=20, pady=(12, 8))
+        opts.pack_propagate(False)
+        ctk.CTkLabel(opts, text="Global Options", text_color=self.C_MUTED, font=self.F_SUB).pack(fill="x", padx=20, pady=(12, 6))
         self.sw_dry = ctk.CTkSwitch(opts, text="⏀ Dry Run", variable=self.dry_run_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
-        self.sw_dry.pack(fill="x", padx=20, pady=4)
+        self.sw_dry.pack(fill="x", padx=20, pady=3)
         self.sw_rec = ctk.CTkSwitch(opts, text="⟲ Recursive", variable=self.recursive_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER, command=self._on_recursive_toggle)
-        self.sw_rec.pack(fill="x", padx=20, pady=4)
+        self.sw_rec.pack(fill="x", padx=20, pady=3)
         self.sw_dedup = ctk.CTkSwitch(opts, text="⎔ Dedup Scan", font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
-        self.sw_dedup.pack(fill="x", padx=20, pady=(4, 12))
+        self.sw_dedup.pack(fill="x", padx=20, pady=(3, 10))
 
         # ROW 1: Path Strip
         path_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
