@@ -94,39 +94,16 @@ def ensure_icons_installed():
     except Exception:
         pass
 
-# --- File Manager ---
-def open_in_file_manager(path: str):
+# --- File Manager (open in Nautilus only) ---
+def open_in_nautilus(path: str):
+    """Open a folder in Nautilus file manager."""
     try:
-        if IS_MACOS:
-            subprocess.Popen(["open", path])
-        elif IS_LINUX:
-            subprocess.Popen(["nautilus", path])
-        else:
-            subprocess.Popen(["explorer", path])
+        subprocess.Popen(["nautilus", path])
     except FileNotFoundError:
         try:
             subprocess.Popen(["xdg-open", path])
         except FileNotFoundError:
             pass
-
-def select_folder_native() -> Optional[str]:
-    if IS_LINUX:
-        try:
-            r = subprocess.run(["zenity", "--file-selection", "--directory", "--title=Select Folder"],
-                               capture_output=True, text=True, timeout=60)
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip()
-        except FileNotFoundError:
-            pass
-    if IS_MACOS:
-        try:
-            r = subprocess.run(["osascript", "-e", 'tell application "Finder" to set p to POSIX path of (choose folder)'],
-                               capture_output=True, text=True, timeout=60)
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip()
-        except FileNotFoundError:
-            pass
-    return None
 
 # --- Configuration ---
 DEFAULT_CONFIG = {
@@ -514,12 +491,7 @@ class BoBnoxApp(ctk.CTk):
         self.console.configure(state="disabled")
 
     def _select_directory(self):
-        path = select_folder_native()
-        if not path:
-            try:
-                path = filedialog.askdirectory()
-            except Exception:
-                pass
+        path = filedialog.askdirectory(title="Select Target Directory")
         if path:
             self.path_var.set(path)
             self._log(f"[INFO] Directory selected: {path}")
@@ -532,7 +504,7 @@ class BoBnoxApp(ctk.CTk):
     def _open_folder(self):
         path = self.path_var.get()
         if path and os.path.isdir(path):
-            open_in_file_manager(path)
+            open_in_nautilus(path)
         else:
             self._log("[WARN] Select a valid folder first.")
 
