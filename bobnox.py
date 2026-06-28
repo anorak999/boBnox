@@ -330,6 +330,14 @@ class BoBnoxApp(ctk.CTk):
         self.C_BTN = ("#E5E5EA", "#2C2C2E")
         self.C_BTN_HOVER = ("#D1D1D6", "#3A3A3C")
 
+        # Animation RGB targets
+        self.THEME_DARK = {"bg": (13, 13, 13), "card": (26, 26, 26), "entry": (13, 13, 13), "text": "#FFFFFF", "muted": "#8E8E93", "border": "#2C2C2E", "btn": "#2C2C2E", "console": "#0D0D0D"}
+        self.THEME_LIGHT = {"bg": (242, 242, 247), "card": (255, 255, 255), "entry": (229, 229, 234), "text": "#000000", "muted": "#636366", "border": "#D1D1D6", "btn": "#E5E5EA", "console": "#F2F2F7"}
+
+        # Animation state
+        self._animating = False
+        self._card_refs = []
+
         # Static accents
         self.BLUE = "#005CE6"
         self.GREEN = "#22C85A"
@@ -360,11 +368,14 @@ class BoBnoxApp(ctk.CTk):
         self._create_widgets()
 
     def _create_widgets(self):
-        p = self  # self has all color tuples
+        p = self
+        self._card_refs = []
 
         # CARD 1: Branding
         brand = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         brand.grid(row=0, column=0, padx=12, pady=12, sticky="nsew")
+        self._card_refs.append(brand)
+        self._brand_card = brand
 
         # Theme toggle
         self.theme_switch = ctk.CTkSwitch(
@@ -386,6 +397,8 @@ class BoBnoxApp(ctk.CTk):
         # CARD 2: Options
         opts = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         opts.grid(row=0, column=1, padx=12, pady=12, sticky="nsew")
+        self._card_refs.append(opts)
+        self._opts_card = opts
         ctk.CTkLabel(opts, text="Options", text_color=p.C_MUTED, font=p.F_SUB).pack(anchor="w", padx=24, pady=(16, 8))
 
         self.dry_run_check = ctk.CTkCheckBox(opts, text="Dry Run (Preview only)", variable=self.dry_run_var, font=p.F_LABEL, text_color=p.C_TEXT, hover_color=self.BLUE, fg_color=self.BLUE, checkbox_width=18, checkbox_height=18)
@@ -397,6 +410,8 @@ class BoBnoxApp(ctk.CTk):
         # CARD 3: Path
         path_card = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         path_card.grid(row=1, column=0, columnspan=2, padx=12, pady=12, sticky="nsew")
+        self._card_refs.append(path_card)
+        self._path_card = path_card
         ctk.CTkLabel(path_card, text="Target Directory", text_color=p.C_MUTED, font=p.F_SUB).pack(anchor="w", padx=24, pady=(14, 6))
 
         path_frame = ctk.CTkFrame(path_card, fg_color="transparent")
@@ -411,6 +426,8 @@ class BoBnoxApp(ctk.CTk):
         # CARD 4: Actions
         actions = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         actions.grid(row=2, column=0, columnspan=2, padx=12, pady=12, sticky="nsew")
+        self._card_refs.append(actions)
+        self._actions_card = actions
         actions.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="buttons")
         actions.grid_columnconfigure(4, weight=1, uniform="buttons")
 
@@ -447,6 +464,8 @@ class BoBnoxApp(ctk.CTk):
         # CARD 5: Terminal
         terminal = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         terminal.grid(row=3, column=0, columnspan=2, padx=12, pady=(12, 20), sticky="nsew")
+        self._card_refs.append(terminal)
+        self._terminal_card = terminal
 
         status_frame = ctk.CTkFrame(terminal, fg_color="transparent")
         status_frame.pack(fill="x", padx=24, pady=(16, 6))
@@ -462,17 +481,50 @@ class BoBnoxApp(ctk.CTk):
         self.console.insert("end", "[INFO] Application initialized.\n[INFO] Awaiting target directory selection...\n")
         self.console.configure(state="disabled")
 
-    # --- Theme Toggle ---
+    # --- Animated Theme Toggle ---
+    def _hex_from_rgb(self, rgb):
+        return f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}"
+
+    def _lerp_color(self, start, end, t):
+        return tuple(int(start[i] + (end[i] - start[i]) * t) for i in range(3))
+
     def _toggle_theme(self):
-        if self.theme_switch.get() == 1:
-            ctk.set_appearance_mode("Dark")
-            self.theme_switch.configure(text="Dark Mode")
-            self.app_config["dark_mode"] = True
-        else:
-            ctk.set_appearance_mode("Light")
-            self.theme_switch.configure(text="Light Mode")
-            self.app_config["dark_mode"] = False
-        save_config(self.app_config)
+        if self._animating:
+            return
+        self._animating = True
+        is_light = self.theme_switch.get() == 1
+        self.theme_switch.configure(text="Light Mode" if is_light else "Dark Mode")
+
+        src = self.THEME_LIGHT if is_light else self.THEME_DARK
+        dst = self.THEME_DARK if is_light else self.THEME_LIGHT
+        steps = 10
+
+        def frame(step):
+            t = step / steps
+            bg = self._hex_from_rgb(self._lerp_color(src["bg"], dst["bg"], t))
+            card = self._hex_from_rgb(self._lerp_color(src["card"], dst["card"], t))
+            entry = self._hex_from_rgb(self._lerp_color(src["entry"], dst["entry"], t))
+
+            self.configure(fg_color=bg)
+            for c in self._card_refs:
+                try:
+                    c.configure(fg_color=card)
+                except Exception:
+                    pass
+            try:
+                self.path_entry.configure(fg_color=entry)
+            except Exception:
+                pass
+
+            if step < steps:
+                self.after(16, lambda: frame(step + 1))
+            else:
+                ctk.set_appearance_mode("Dark" if not is_light else "Light")
+                self.app_config["dark_mode"] = not is_light
+                save_config(self.app_config)
+                self._animating = False
+
+        frame(1)
 
     # --- Actions ---
     def _log(self, msg: str):
