@@ -278,7 +278,106 @@ class FileOrganizer:
         return restored
 
 
-# --- 2. SETTINGS DIALOG ---
+# --- Rounded Button Widget ---
+class RoundedButton(tk.Canvas):
+    """A button with rounded corners, mimicking macOS aqua style."""
+
+    def __init__(self, parent, text, command=None, width=120, height=36,
+                 bg="#FFFFFF", fg="#1D1D1F", hover_bg="#E8E8ED",
+                 active_bg="#D2D2D7", radius=8, font=("Inter", 11, "bold"), **kwargs):
+        super().__init__(parent, width=width, height=height, highlightthickness=0,
+                         bg=parent.cget("bg") if hasattr(parent, 'cget') else "#F5F5F7", **kwargs)
+        self.command = command
+        self.bg = bg
+        self.fg = fg
+        self.hover_bg = hover_bg
+        self.active_bg = active_bg
+        self.radius = radius
+        self.width = width
+        self.height = height
+        self.text = text
+        self.font = font
+        self._state = "normal"
+
+        self._draw()
+
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+
+    def _rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
+        points = [
+            x1+r, y1, x2-r, y1, x2, y1, x2, y1+r,
+            x2, y2-r, x2, y2, x2-r, y2, x1+r, y2,
+            x1, y2, x1, y2-r, x1, y1+r, x1, y1
+        ]
+        return self.create_polygon(points, smooth=True, **kwargs)
+
+    def _draw(self):
+        self.delete("all")
+        bg_color = self.bg
+        if self._state == "hover":
+            bg_color = self.hover_bg
+        elif self._state == "active":
+            bg_color = self.active_bg
+
+        self._rounded_rect(1, 1, self.width-1, self.height-1, self.radius, fill=bg_color, outline="#D2D2D7")
+        self.create_text(self.width//2, self.height//2, text=self.text, fill=self.fg, font=self.font)
+
+    def _on_enter(self, e):
+        if self._state != "disabled":
+            self._state = "hover"
+            self._draw()
+            self.configure(cursor="hand2")
+
+    def _on_leave(self, e):
+        if self._state != "disabled":
+            self._state = "normal"
+            self._draw()
+
+    def _on_press(self, e):
+        if self._state != "disabled":
+            self._state = "active"
+            self._draw()
+
+    def _on_release(self, e):
+        if self._state != "disabled":
+            self._state = "normal"
+            self._draw()
+            if self.command:
+                self.command()
+
+    def set_state(self, state):
+        self._state = state
+        if state == "disabled":
+            self.configure(cursor="")
+        self._draw()
+
+    def configure(self, **kwargs):
+        if "text" in kwargs:
+            self.text = kwargs.pop("text")
+        if "bg" in kwargs:
+            self.bg = kwargs.pop("bg")
+        if "fg" in kwargs:
+            self.fg = kwargs.pop("fg")
+        super().configure(**kwargs)
+        self._draw()
+
+    def cget(self, key):
+        if key == "text":
+            return self.text
+        return super().cget(key)
+
+
+class RoundedAccentButton(RoundedButton):
+    """Accent-colored rounded button (e.g., for primary actions)."""
+
+    def __init__(self, parent, text, command=None, width=140, height=40, **kwargs):
+        super().__init__(parent, text, command, width, height,
+                         bg="#007AFF", fg="#FFFFFF", hover_bg="#0056CC",
+                         active_bg="#004499", radius=10,
+                         font=("Inter", 12, "bold"), **kwargs)
 class SettingsDialog(tk.Toplevel):
 
     def __init__(self, parent, config: dict, on_save_callback, theme_is_aqua: bool = False):
@@ -290,32 +389,19 @@ class SettingsDialog(tk.Toplevel):
         self.geometry("500x600")
         self.resizable(False, False)
         self.grab_set()
-
-        if not theme_is_aqua:
-            self.configure(bg="#1E1E1E")
+        self.configure(bg="#F5F5F7")
 
         self.extension_entries = {}
         self._create_widgets()
 
     def _create_widgets(self):
-        if not self.theme_is_aqua:
-            style = ttk.Style(self)
-            style.configure("Dialog.TFrame", background="#1E1E1E")
-            style.configure("Dialog.TLabel", background="#1E1E1E", foreground="#FFFFFF", font=("Inter", 11))
-            main_frame = ttk.Frame(self, padding="15", style="Dialog.TFrame")
-            main_frame.pack(fill=tk.BOTH, expand=True)
-            header_fg = "#0078D4"
-            canvas_bg = "#1E1E1E"
-        else:
-            main_frame = ttk.Frame(self, padding="15")
-            main_frame.pack(fill=tk.BOTH, expand=True)
-            header_fg = "#007AFF"
-            canvas_bg = "#FFFFFF"
+        main_frame = ttk.Frame(self, padding="15")
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(main_frame, text="Extension Mappings", font=("Inter", 14, "bold"),
-                  foreground=header_fg).pack(pady=(0, 10))
+                  foreground="#007AFF").pack(pady=(0, 10))
 
-        canvas = tk.Canvas(main_frame, bg=canvas_bg, highlightthickness=0)
+        canvas = tk.Canvas(main_frame, bg="#FAFAFA", highlightthickness=0)
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
 
@@ -375,10 +461,6 @@ class FileOrganizerApp(tk.Tk):
             try:
                 style.theme_use('aqua')
                 self.theme_is_aqua = True
-                self.BG_DARK = "#ECECEC"
-                self.BG_MID = "#D4D4D4"
-                self.FG_LIGHT = "#1D1D1F"
-                self.ACCENT_COLOR = "#007AFF"
             except Exception:
                 self.theme_is_aqua = False
 
@@ -387,51 +469,77 @@ class FileOrganizerApp(tk.Tk):
                 style.theme_use('clam')
             except Exception:
                 pass
-            self.BG_DARK = "#1E1E1E"
-            self.BG_MID = "#2D2D30"
-            self.FG_LIGHT = "#FFFFFF"
-            self.ACCENT_COLOR = "#0078D4"
-            self.configure(bg=self.BG_DARK)
 
-        style.configure("TFrame", background=self.BG_DARK)
-        style.configure("TLabel", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 12))
-        style.configure("Status.TLabel", background=self.BG_DARK, foreground="#888888", font=("Inter", 10, "italic"))
-        style.configure("TEntry", font=("Inter", 11))
-        style.configure("TButton", font=("Inter", 11, "bold"), padding=[12, 6])
-        style.configure("TProgressbar", troughcolor=self.BG_MID, background=self.ACCENT_COLOR)
-        style.configure("TCheckbutton", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 10))
+        # Light macOS-style colors
+        self.BG_MAIN = "#F5F5F7"
+        self.BG_CARD = "#FFFFFF"
+        self.BG_INPUT = "#FFFFFF"
+        self.BG_HOVER = "#E8E8ED"
+        self.FG_PRIMARY = "#1D1D1F"
+        self.FG_SECONDARY = "#86868B"
+        self.ACCENT_COLOR = "#007AFF"
+        self.ACCENT_HOVER = "#0056CC"
+        self.BORDER_COLOR = "#D2D2D7"
+        self.SUCCESS_COLOR = "#34C759"
+        self.WARNING_COLOR = "#FF9500"
+        self.ERROR_COLOR = "#FF3B30"
+
+        self.configure(bg=self.BG_MAIN)
+
+        style.configure("TFrame", background=self.BG_MAIN)
+        style.configure("Card.TFrame", background=self.BG_CARD, relief="flat")
+        style.configure("TLabel", background=self.BG_MAIN, foreground=self.FG_PRIMARY, font=("Inter", 12))
+        style.configure("Card.TLabel", background=self.BG_CARD, foreground=self.FG_PRIMARY, font=("Inter", 12))
+        style.configure("Title.TLabel", background=self.BG_MAIN, foreground=self.FG_PRIMARY, font=("Inter", 20, "bold"))
+        style.configure("Subtitle.TLabel", background=self.BG_MAIN, foreground=self.FG_SECONDARY, font=("Inter", 11))
+        style.configure("Status.TLabel", background=self.BG_MAIN, foreground=self.FG_SECONDARY, font=("Inter", 10))
+        style.configure("TEntry", font=("Inter", 11), padding=8)
+        style.configure("Accent.TButton", font=("Inter", 12, "bold"), padding=[16, 10], background=self.ACCENT_COLOR, foreground="#FFFFFF")
+        style.configure("TButton", font=("Inter", 11), padding=[12, 6], background=self.BG_CARD, foreground=self.FG_PRIMARY)
+        style.map("TButton", background=[('active', self.BG_HOVER), ('disabled', '#F5F5F5')])
+        style.map("Accent.TButton", background=[('active', self.ACCENT_HOVER), ('disabled', '#C7C7CC')])
+        style.configure("TProgressbar", troughcolor=self.BG_HOVER, background=self.ACCENT_COLOR, thickness=6)
+        style.configure("TCheckbutton", background=self.BG_MAIN, foreground=self.FG_PRIMARY, font=("Inter", 11))
+        style.map("TCheckbutton", background=[('active', self.BG_MAIN)])
 
     def create_widgets(self):
-        main_frame = ttk.Frame(self, padding="20")
+        main_frame = ttk.Frame(self, padding="24")
         main_frame.pack(expand=True, fill=tk.BOTH)
         main_frame.grid_columnconfigure(0, weight=1)
 
-        path_frame = ttk.Frame(main_frame)
-        path_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
-        path_frame.grid_columnconfigure(0, weight=1)
+        # Title
+        ttk.Label(main_frame, text="boBnox", style="Title.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(main_frame, text="Organize your files into categorized folders", style="Subtitle.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 20))
 
-        self.path_entry = ttk.Entry(path_frame, textvariable=self.path_var, font=("Inter", 11))
-        self.path_entry.grid(row=0, column=0, sticky="ew")
+        # Path selection card
+        path_card = ttk.Frame(main_frame, style="Card.TFrame", padding="12")
+        path_card.grid(row=2, column=0, sticky="ew", pady=(0, 16))
+        path_card.grid_columnconfigure(0, weight=1)
 
-        browse_frame = ttk.Frame(path_frame)
-        browse_frame.grid(row=0, column=1, padx=(8, 0))
+        self.path_entry = ttk.Entry(path_card, textvariable=self.path_var, font=("Inter", 11))
+        self.path_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
-        browse_button = ttk.Button(browse_frame, text="Browse...", command=self.select_directory)
-        browse_button.pack(side="left")
+        browse_frame = ttk.Frame(path_card, style="Card.TFrame")
+        browse_frame.grid(row=0, column=1)
 
-        nautilus_button = ttk.Button(browse_frame, text="Nautilus", command=self.select_via_nautilus)
-        nautilus_button.pack(side="left", padx=(4, 0))
+        self.browse_button = RoundedButton(browse_frame, text="Browse", command=self.select_directory, width=80, height=32, radius=6)
+        self.browse_button.pack(side="left")
 
-        options_frame = ttk.Frame(main_frame)
-        options_frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        options_frame.grid_columnconfigure(0, weight=1)
+        self.nautilus_button = RoundedButton(browse_frame, text="Nautilus", command=self.select_via_nautilus, width=80, height=32, radius=6)
+        self.nautilus_button.pack(side="left", padx=(4, 0))
 
-        self.dry_run_check = ttk.Checkbutton(options_frame, text="Dry Run (Preview only)", variable=self.dry_run_var)
+        # Options card
+        options_card = ttk.Frame(main_frame, style="Card.TFrame", padding="12")
+        options_card.grid(row=3, column=0, sticky="ew", pady=(0, 16))
+        options_card.grid_columnconfigure(0, weight=1)
+
+        self.dry_run_check = ttk.Checkbutton(options_card, text="Dry Run (Preview only)", variable=self.dry_run_var)
         self.dry_run_check.grid(row=0, column=0, sticky="w", padx=(0, 20))
 
-        self.recursive_check = ttk.Checkbutton(options_frame, text="Include Subdirectories", variable=self.recursive_var, command=self._on_recursive_toggle)
+        self.recursive_check = ttk.Checkbutton(options_card, text="Include Subdirectories", variable=self.recursive_var, command=self._on_recursive_toggle)
         self.recursive_check.grid(row=0, column=1, sticky="w")
 
+        # Organize button (accent)
         assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
         svg_path = os.path.join(assets_dir, 'Sort--Streamline-Solar.svg')
 
@@ -441,46 +549,48 @@ class FileOrganizerApp(tk.Tk):
                 png_bytes = cairosvg.svg2png(url=svg_path, output_width=48, output_height=48)
                 img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
                 self.organize_img = ImageTk.PhotoImage(img)
-                self.organize_button = tk.Button(main_frame, image=self.organize_img, command=self.start_organizing_thread, bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.BG_DARK, activebackground=self.BG_DARK)
+                self.organize_button = tk.Button(main_frame, image=self.organize_img, command=self.start_organizing_thread, bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.BG_MAIN, activebackground=self.BG_MAIN)
             except Exception:
-                self.organize_button = self._create_text_button(main_frame)
+                self.organize_button = RoundedAccentButton(main_frame, text="Organize", command=self.start_organizing_thread, width=160, height=44)
         else:
-            self.organize_button = self._create_text_button(main_frame)
+            self.organize_button = RoundedAccentButton(main_frame, text="Organize", command=self.start_organizing_thread, width=160, height=44)
 
-        self.organize_button.grid(row=2, column=0, pady=(8, 8))
+        self.organize_button.grid(row=4, column=0, pady=(8, 16))
 
-        secondary_frame = ttk.Frame(main_frame)
-        secondary_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        # Secondary buttons
+        secondary_frame = ttk.Frame(main_frame, style="Card.TFrame", padding="8")
+        secondary_frame.grid(row=5, column=0, sticky="ew", pady=(0, 12))
         secondary_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
-        self.undo_button = ttk.Button(secondary_frame, text="Undo", command=self.undo_last_action, state='disabled')
+        self.undo_button = RoundedButton(secondary_frame, text="Undo", command=self.undo_last_action, width=80, height=32, radius=6)
         self.undo_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.undo_button.set_state("disabled")
 
-        self.settings_button = ttk.Button(secondary_frame, text="Settings", command=self.open_settings)
+        self.settings_button = RoundedButton(secondary_frame, text="Settings", command=self.open_settings, width=80, height=32, radius=6)
         self.settings_button.grid(row=0, column=1, sticky="ew", padx=4)
 
-        self.open_folder_button = ttk.Button(secondary_frame, text="Open Folder", command=self.open_organized_folder)
+        self.open_folder_button = RoundedButton(secondary_frame, text="Open Folder", command=self.open_organized_folder, width=100, height=32, radius=6)
         self.open_folder_button.grid(row=0, column=2, sticky="ew", padx=4)
 
-        self.clear_log_button = ttk.Button(secondary_frame, text="Clear Log", command=self.clear_log)
+        self.clear_log_button = RoundedButton(secondary_frame, text="Clear", command=self.clear_log, width=60, height=32, radius=6)
         self.clear_log_button.grid(row=0, column=3, sticky="ew", padx=(4, 0))
 
+        # Progress bar
         self.progress_bar = ttk.Progressbar(main_frame, orient="horizontal", mode="determinate")
-        self.progress_bar.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        self.progress_bar.grid(row=6, column=0, sticky="ew", pady=(0, 8))
 
+        # Status
         self.status_label = ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel")
-        self.status_label.grid(row=5, column=0, sticky="w")
+        self.status_label.grid(row=7, column=0, sticky="w")
 
-        log_frame = ttk.Frame(main_frame)
-        log_frame.grid(row=6, column=0, sticky="nsew", pady=(10, 0))
+        # Log display
+        log_frame = ttk.Frame(main_frame, style="Card.TFrame", padding="8")
+        log_frame.grid(row=8, column=0, sticky="nsew", pady=(12, 0))
         log_frame.grid_columnconfigure(0, weight=1)
         log_frame.grid_rowconfigure(0, weight=1)
-        main_frame.grid_rowconfigure(6, weight=1)
+        main_frame.grid_rowconfigure(8, weight=1)
 
-        log_bg = self.BG_MID if not self.theme_is_aqua else "#F5F5F5"
-        log_fg = self.FG_LIGHT if not self.theme_is_aqua else "#1D1D1F"
-
-        self.log_text = tk.Text(log_frame, height=8, bg=log_bg, fg=log_fg, font=("Menlo" if IS_MACOS else "Consolas", 9), relief='flat', bd=0, wrap='word', state='disabled')
+        self.log_text = tk.Text(log_frame, height=8, bg="#FAFAFA", fg=self.FG_PRIMARY, font=("Menlo" if IS_MACOS else "Consolas", 10), relief='flat', bd=0, wrap='word', state='disabled', highlightthickness=0)
         self.log_text.grid(row=0, column=0, sticky="nsew")
 
         log_scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
@@ -488,7 +598,7 @@ class FileOrganizerApp(tk.Tk):
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
 
     def _create_text_button(self, parent):
-        return tk.Button(parent, text="Organize", command=self.start_organizing_thread, font=("Inter", 12, "bold"), bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.ACCENT_COLOR, fg=self.FG_LIGHT, activebackground='#005A9E', padx=20, pady=8)
+        return RoundedAccentButton(parent, text="Organize", command=self.start_organizing_thread, width=160, height=44)
 
     def select_directory(self):
         path = filedialog.askdirectory()
@@ -656,15 +766,19 @@ class FileOrganizerApp(tk.Tk):
             logger.error(f"Failed to save log file: {e}")
 
     def _set_ui_state(self, disabled: bool):
-        state = 'disabled' if disabled else 'normal'
-        self.organize_button.config(state=state)
+        state = "disabled" if disabled else "normal"
+        self.organize_button.set_state(state)
         self.path_entry.config(state=state)
         self.dry_run_check.config(state=state)
         self.recursive_check.config(state=state)
-        self.settings_button.config(state=state)
-        self.open_folder_button.config(state=state)
+        self.settings_button.set_state(state)
+        self.open_folder_button.set_state(state)
+        self.browse_button.set_state(state)
+        self.nautilus_button.set_state(state)
+        self.clear_log_button.set_state(state)
         if not disabled:
-            self.undo_button.config(state='normal' if self.organizer._move_history else 'disabled')
+            undo_state = "normal" if self.organizer._move_history else "disabled"
+            self.undo_button.set_state(undo_state)
 
     def reset_ui(self):
         self._set_ui_state(disabled=False)
