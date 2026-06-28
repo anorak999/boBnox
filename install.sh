@@ -64,8 +64,10 @@ chmod +x "$BIN_DIR/bobnox"
 echo "[4/5] Creating desktop launcher and installing icon..."
 mkdir -p "$DESKTOP_DIR"
 mkdir -p "$INSTALL_DIR"
+mkdir -p "$HOME/.local/share/icons"
 
-# Copy icon to install dir for desktop integration
+# Copy icon to standard freedesktop paths
+cp "$INSTALL_DIR/BoBnox-icon/Bobnox-icon.png" "$HOME/.local/share/icons/bobnox.png" 2>/dev/null || true
 cp "$INSTALL_DIR/BoBnox-icon/Bobnox-icon.png" "$INSTALL_DIR/icon.png" 2>/dev/null || true
 
 cat > "$DESKTOP_DIR/bobnox.desktop" << DESKTOP
@@ -76,7 +78,7 @@ Name=BoBnox
 GenericName=File Organizer
 Comment=Organize files into categorized folders
 Exec=$BIN_DIR/bobnox-gui
-Icon=$INSTALL_DIR/icon.png
+Icon=bobnox
 Terminal=false
 Categories=Utility;FileTools;
 StartupWMClass=bobnox

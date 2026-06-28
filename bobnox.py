@@ -1,5 +1,4 @@
 import os
-import sys
 import shutil
 import subprocess
 import platform
@@ -35,10 +34,10 @@ logger = setup_logging()
 
 # --- Paths ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-GEIST_DIR = os.path.join(SCRIPT_DIR, "Geist")
-GEIST_STATIC = os.path.join(GEIST_DIR, "static")
+GEIST_STATIC = os.path.join(SCRIPT_DIR, "Geist", "static")
 ICON_SOURCE = os.path.join(SCRIPT_DIR, "BoBnox-icon", "Bobnox-icon.png")
-ICON_INSTALL = os.path.expanduser("~/.local/share/bobnox/icon.png")
+ICON_APP = os.path.expanduser("~/.local/share/bobnox/icon.png")
+ICON_SYSTEM = os.path.expanduser("~/.local/share/icons/bobnox.png")
 SVG_PATH = os.path.join(SCRIPT_DIR, "assets", "Sort--Streamline-Solar.svg")
 
 FONT_FILES = {
@@ -48,24 +47,10 @@ FONT_FILES = {
     "Geist-SemiBold": os.path.join(GEIST_STATIC, "Geist-SemiBold.ttf"),
 }
 
-def ensure_icon_installed():
-    """Copy icon to ~/.local/share/bobnox/ for desktop integration."""
-    dest_dir = Path.home() / ".local" / "share" / "bobnox"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / "icon.png"
-    if os.path.exists(ICON_SOURCE) and not dest.exists():
-        try:
-            shutil.copy2(ICON_SOURCE, dest)
-            logger.info(f"Icon installed to {dest}")
-        except Exception as e:
-            logger.warning(f"Failed to install icon: {e}")
-
 def install_geist_fonts():
-    """Install Geist fonts to user font directory."""
     installed = 0
     local_dir = Path.home() / ".local" / "share" / "fonts" / "Geist"
     local_dir.mkdir(parents=True, exist_ok=True)
-
     for name, path in FONT_FILES.items():
         if os.path.exists(path):
             dest = local_dir / os.path.basename(path)
@@ -75,22 +60,39 @@ def install_geist_fonts():
                     installed += 1
                 except Exception:
                     pass
-
     if installed > 0:
         try:
             subprocess.run(["fc-cache", "-f"], capture_output=True, timeout=15)
-            logger.info(f"Installed {installed} Geist fonts, fc-cache refreshed")
         except Exception:
             pass
     return installed > 0
 
 def geist_available():
-    """Check if Geist font family is registered system-wide."""
     try:
         f = tkfont.Font(family="Geist", size=12)
         return "geist" in f.actual("family").lower()
     except Exception:
         return False
+
+def ensure_icons_installed():
+    """Install icons to standard freedesktop paths for GNOME shell."""
+    for dest_path in [ICON_APP, ICON_SYSTEM]:
+        dest = Path(dest_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if os.path.exists(ICON_SOURCE) and not dest.exists():
+            try:
+                shutil.copy2(ICON_SOURCE, dest)
+                logger.info(f"Icon installed: {dest}")
+            except Exception as e:
+                logger.warning(f"Icon install failed: {e}")
+    # Refresh icon cache
+    try:
+        subprocess.run(["gtk-update-icon-cache", "-f", os.path.expanduser("~/.local/share/icons/")],
+                       capture_output=True, timeout=10)
+        subprocess.run(["update-desktop-database", os.path.expanduser("~/.local/share/applications/")],
+                       capture_output=True, timeout=10)
+    except Exception:
+        pass
 
 # --- File Manager ---
 def open_in_file_manager(path: str):
@@ -130,26 +132,21 @@ def select_folder_native() -> Optional[str]:
 DEFAULT_CONFIG = {
     "extension_map": {
         '.jpg': 'Images', '.jpeg': 'Images', '.png': 'Images', '.gif': 'Images',
-        '.bmp': 'Images', '.svg': 'Images', '.tiff': 'Images', '.webp': 'Images',
-        '.heic': 'Images',
+        '.bmp': 'Images', '.svg': 'Images', '.tiff': 'Images', '.webp': 'Images', '.heic': 'Images',
         '.pdf': 'Documents', '.doc': 'Documents', '.docx': 'Documents',
-        '.txt': 'Text Documents', '.rtf': 'Documents', '.odt': 'Documents',
-        '.md': 'Text Documents',
+        '.txt': 'Text Documents', '.rtf': 'Documents', '.odt': 'Documents', '.md': 'Text Documents',
         '.xls': 'Spreadsheets', '.xlsx': 'Spreadsheets', '.csv': 'Spreadsheets',
         '.ppt': 'Presentations', '.pptx': 'Presentations',
-        '.mp3': 'Audio', '.wav': 'Audio', '.aac': 'Audio', '.flac': 'Audio',
-        '.ogg': 'Audio', '.m4a': 'Audio',
-        '.mp4': 'Videos', '.mov': 'Videos', '.avi': 'Videos', '.mkv': 'Videos',
-        '.wmv': 'Videos', '.flv': 'Videos',
-        '.zip': 'Archives', '.rar': 'Archives', '.7z': 'Archives', '.tar': 'Archives',
-        '.gz': 'Archives',
+        '.mp3': 'Audio', '.wav': 'Audio', '.aac': 'Audio', '.flac': 'Audio', '.ogg': 'Audio', '.m4a': 'Audio',
+        '.mp4': 'Videos', '.mov': 'Videos', '.avi': 'Videos', '.mkv': 'Videos', '.wmv': 'Videos', '.flv': 'Videos',
+        '.zip': 'Archives', '.rar': 'Archives', '.7z': 'Archives', '.tar': 'Archives', '.gz': 'Archives',
         '.py': 'Scripts', '.js': 'Scripts', '.html': 'Web Files', '.css': 'Web Files',
         '.java': 'Code', '.cpp': 'Code', '.c': 'Code', '.sh': 'Scripts',
         '.exe': 'Executables', '.msi': 'Installers', '.dmg': 'Installers',
     },
     "organize_subdirectories": False,
     "create_log_file": True,
-    "theme": "dark",
+    "dark_mode": True,
 }
 
 CONFIG_DIR = Path.home() / ".config" / "bobnox"
@@ -196,24 +193,6 @@ def save_undo_history(history: list) -> bool:
         return False
 
 
-# --- Theme Palettes ---
-DARK_PALETTE = {
-    "bg": "#0D0D0D", "card": "#1A1A1A", "input_bg": "#0D0D0D",
-    "border": "#2C2C2E", "text": "#FFFFFF", "muted": "#8E8E93",
-    "blue": "#005CE6", "green": "#22C85A", "coral": "#FF4F31",
-    "btn_secondary": "#2C2C2E", "btn_hover": "#3A3A3C",
-    "console_bg": "#0D0D0D", "console_fg": "#A9A9B2",
-}
-
-LIGHT_PALETTE = {
-    "bg": "#F2F2F7", "card": "#FFFFFF", "input_bg": "#F2F2F7",
-    "border": "#D1D1D6", "text": "#1C1C1E", "muted": "#8E8E93",
-    "blue": "#007AFF", "green": "#34C759", "coral": "#FF3B30",
-    "btn_secondary": "#E5E5EA", "btn_hover": "#D1D1D6",
-    "console_bg": "#F2F2F7", "console_fg": "#636366",
-}
-
-
 # --- File Organizer Core ---
 class FileOrganizer:
 
@@ -236,37 +215,30 @@ class FileOrganizer:
     def organize_directory(self, directory_path: str, status_callback, dry_run: bool = False) -> int:
         if not os.path.isdir(directory_path):
             raise FileNotFoundError("The selected path is not a valid directory.")
-
         directory = Path(directory_path)
         if self.organize_subdirectories:
             files_to_move = [f for f in directory.rglob('*') if f.is_file() and f.name != os.path.basename(__file__)]
         else:
             files_to_move = [f for f in directory.iterdir() if f.is_file() and f.name != os.path.basename(__file__)]
-
         total = len(files_to_move)
         moved = 0
         if total == 0:
             status_callback("No files to organize.", 1.0)
             return 0
-
         self._move_history.clear()
-
         for i, fp in enumerate(files_to_move):
             rel = fp.relative_to(directory)
             ext = fp.suffix.lower()
             folder_name = self.extension_map.get(ext, f"{ext[1:].upper()} Files" if ext else "Other Files")
             dest = directory / folder_name
-
             if not dry_run and not dest.exists():
                 dest.mkdir(parents=True, exist_ok=True)
-
             base, e = os.path.splitext(fp.name)
             counter = 1
             dest_path = dest / fp.name
             while dest_path.exists():
                 dest_path = dest / f"{base} ({counter}){e}"
                 counter += 1
-
             if not dry_run:
                 try:
                     shutil.move(str(fp), str(dest_path))
@@ -277,11 +249,7 @@ class FileOrganizer:
                     continue
             else:
                 moved += 1
-
-            pct = (i + 1) / total
-            action = "Would move" if dry_run else "Moving"
-            status_callback(f"{action} ({i + 1}/{total}): {rel} -> {folder_name}", pct)
-
+            status_callback(f"{'Would move' if dry_run else 'Moving'} ({i + 1}/{total}): {rel} -> {folder_name}", (i + 1) / total)
         if not dry_run and self._move_history:
             self._save_persistent_history()
         return moved
@@ -309,39 +277,36 @@ class FileOrganizer:
 # --- Settings Dialog ---
 class SettingsDialog(ctk.CTkToplevel):
 
-    def __init__(self, parent, config: dict, on_save_callback, palette: dict, fonts: dict):
+    def __init__(self, parent, config: dict, on_save_callback):
         super().__init__(parent)
         self.config = config.copy()
         self.on_save = on_save_callback
-        self.p = palette
-        self.f = fonts
         self.title("Settings")
         self.geometry("520x620")
-        self.configure(fg_color=self.p["bg"])
         self.resizable(False, False)
         self.grab_set()
         self.extension_entries = {}
         self._create_widgets()
 
     def _create_widgets(self):
-        ctk.CTkLabel(self, text="Extension Mappings", font=self.f["title"], text_color=self.p["text"]).pack(anchor="w", padx=24, pady=(20, 10))
+        ctk.CTkLabel(self, text="Extension Mappings", font=("Geist", 18, "bold")).pack(anchor="w", padx=24, pady=(20, 10))
 
-        scroll = ctk.CTkScrollableFrame(self, fg_color=self.p["bg"], corner_radius=0)
+        scroll = ctk.CTkScrollableFrame(self, corner_radius=0)
         scroll.pack(fill="both", expand=True, padx=16, pady=(0, 10))
 
         for ext, folder in sorted(self.config.get("extension_map", {}).items()):
-            row = ctk.CTkFrame(scroll, fg_color=self.p["card"], corner_radius=8)
+            row = ctk.CTkFrame(scroll, corner_radius=8)
             row.pack(fill="x", pady=3)
-            ctk.CTkLabel(row, text=ext, font=self.f["label"], text_color=self.p["muted"], width=80).pack(side="left", padx=(12, 8), pady=8)
-            entry = ctk.CTkEntry(row, font=self.f["label"], fg_color=self.p["input_bg"], border_color=self.p["border"], text_color=self.p["text"], corner_radius=6, height=32)
+            ctk.CTkLabel(row, text=ext, font=("Geist", 13), width=80).pack(side="left", padx=(12, 8), pady=8)
+            entry = ctk.CTkEntry(row, font=("Geist", 13), corner_radius=6, height=32)
             entry.insert(0, folder)
             entry.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=8)
             self.extension_entries[ext] = entry
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(fill="x", padx=16, pady=(0, 16))
-        ctk.CTkButton(btn_frame, text="Save", font=self.f["button"], fg_color=self.p["blue"], hover_color="#004BB3", height=36, corner_radius=8, command=self._save).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(btn_frame, text="Cancel", font=self.f["button"], fg_color=self.p["btn_secondary"], hover_color=self.p["btn_hover"], text_color=self.p["text"], height=36, corner_radius=8, command=self.destroy).pack(side="left")
+        ctk.CTkButton(btn_frame, text="Save", font=("Geist", 13, "bold"), fg_color="#005CE6", hover_color="#004BB3", height=36, corner_radius=8, command=self._save).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_frame, text="Cancel", font=("Geist", 13), height=36, corner_radius=8, command=self.destroy).pack(side="left")
 
     def _save(self):
         for ext, entry in self.extension_entries.items():
@@ -359,117 +324,116 @@ class BoBnoxApp(ctk.CTk):
         self.app_config = load_config()
         self.organizer = FileOrganizer(self.app_config)
         self.log_messages = []
-        self.is_dark = self.app_config.get("theme", "dark") == "dark"
 
         self.title("BoBnox")
         self.geometry("920x760")
         self.minsize(700, 560)
 
-        # Install fonts and icon
+        # Install fonts and icons
         if not geist_available():
             install_geist_fonts()
-        ensure_icon_installed()
+        ensure_icons_installed()
 
-        # Set window icon for Dash-to-Dock / top bar
+        # Set window icon for titlebar + dock
         self._icon_ref = None
-        icon_path = ICON_INSTALL if os.path.exists(ICON_INSTALL) else ICON_SOURCE
+        icon_path = ICON_SYSTEM if os.path.exists(ICON_SYSTEM) else ICON_APP if os.path.exists(ICON_APP) else ICON_SOURCE
         if os.path.exists(icon_path):
             try:
                 self._icon_ref = tk.PhotoImage(file=icon_path)
                 self.iconphoto(True, self._icon_ref)
             except Exception as e:
-                logger.warning(f"Icon setup failed: {e}")
+                logger.warning(f"Icon failed: {e}")
+
+        # --- Color Tuples: ("light", "dark") ---
+        self.C_BG = ("#F2F2F7", "#0D0D0D")
+        self.C_CARD = ("#FFFFFF", "#1A1A1A")
+        self.C_TEXT = ("#000000", "#FFFFFF")
+        self.C_MUTED = ("#636366", "#8E8E93")
+        self.C_ENTRY = ("#E5E5EA", "#0D0D0D")
+        self.C_BORDER = ("#D1D1D6", "#2C2C2E")
+        self.C_BTN = ("#E5E5EA", "#2C2C2E")
+        self.C_BTN_HOVER = ("#D1D1D6", "#3A3A3C")
+
+        # Static accents
+        self.BLUE = "#005CE6"
+        self.GREEN = "#22C85A"
+        self.CORAL = "#FF4F31"
+
+        # Fonts
+        gf = "Geist" if geist_available() else ("Helvetica" if IS_MACOS else "Sans")
+        self.F_TITLE = (gf, 26, "bold")
+        self.F_SUB = (gf, 12)
+        self.F_LABEL = (gf, 13)
+        self.F_BTN = (gf, 13, "bold")
+        self.F_CONSOLE = ("Courier", 12)
 
         # Variables
         self.path_var = tk.StringVar()
         self.dry_run_var = tk.BooleanVar(value=False)
         self.recursive_var = tk.BooleanVar(value=self.app_config.get("organize_subdirectories", False))
 
-        self._apply_theme()
-        self._create_widgets()
-
-    def _apply_theme(self):
-        ctk.set_appearance_mode("Dark" if self.is_dark else "Light")
-        self.p = DARK_PALETTE if self.is_dark else LIGHT_PALETTE
-        self.configure(fg_color=self.p["bg"])
-
-        gf = "Geist" if geist_available() else ("Helvetica" if self.is_dark else "SF Pro Text")
-        sf = "Courier" if not geist_available() else "Geist"
-
-        self.f = {
-            "title": (gf, 26, "bold"),
-            "subtitle": (gf, 12),
-            "label": (gf, 13),
-            "button": (gf, 13, "bold"),
-            "console": (sf, 12),
-        }
-
-    def _create_widgets(self):
         # Grid
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(3, weight=1)
 
-        p, f = self.p, self.f
+        # Set initial mode
+        is_dark = self.app_config.get("dark_mode", True)
+        ctk.set_appearance_mode("Dark" if is_dark else "Light")
+
+        self._create_widgets()
+
+    def _create_widgets(self):
+        p = self  # self has all color tuples
 
         # CARD 1: Branding
-        brand = ctk.CTkFrame(self, fg_color=p["card"], corner_radius=16)
+        brand = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         brand.grid(row=0, column=0, padx=12, pady=12, sticky="nsew")
 
-        # Theme toggle in top-right of brand card
-        theme_frame = ctk.CTkFrame(brand, fg_color="transparent")
-        theme_frame.pack(anchor="e", padx=16, pady=(12, 0))
-        ctk.CTkLabel(theme_frame, text="Light" if self.is_dark else "Dark", font=f["subtitle"], text_color=p["muted"]).pack(side="left", padx=(0, 6))
-        self.theme_switch = ctk.CTkSwitch(theme_frame, text="", command=self._toggle_theme, onvalue=True, offvalue=False,
-                                           button_color=p["blue"], button_hover_color="#004BB3",
-                                           progress_color=p["blue"], fg_color=p["border"])
-        self.theme_switch.pack(side="left")
-        self.theme_switch.select() if self.is_dark else self.theme_switch.deselect()
+        # Theme toggle
+        self.theme_switch = ctk.CTkSwitch(
+            brand, text="Dark Mode", command=self._toggle_theme,
+            font=p.F_LABEL, text_color=p.C_TEXT,
+            progress_color=self.BLUE, fg_color=p.C_BORDER
+        )
+        self.theme_switch.pack(anchor="w", padx=24, pady=(16, 8))
+        if self.app_config.get("dark_mode", True):
+            self.theme_switch.select()
+            self.theme_switch.configure(text="Dark Mode")
+        else:
+            self.theme_switch.deselect()
+            self.theme_switch.configure(text="Light Mode")
 
-        ctk.CTkLabel(brand, text="boBnox", text_color=p["text"], font=f["title"]).pack(anchor="w", padx=24, pady=(0, 4))
-        ctk.CTkLabel(brand, text="Organize your files into categorized folders", text_color=p["muted"], font=f["label"]).pack(anchor="w", padx=24, pady=(0, 20))
+        ctk.CTkLabel(brand, text="boBnox", text_color=p.C_TEXT, font=p.F_TITLE).pack(anchor="w", padx=24, pady=(0, 4))
+        ctk.CTkLabel(brand, text="Organize your files into categorized folders", text_color=p.C_MUTED, font=p.F_LABEL).pack(anchor="w", padx=24, pady=(0, 20))
 
         # CARD 2: Options
-        opts = ctk.CTkFrame(self, fg_color=p["card"], corner_radius=16)
+        opts = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         opts.grid(row=0, column=1, padx=12, pady=12, sticky="nsew")
+        ctk.CTkLabel(opts, text="Options", text_color=p.C_MUTED, font=p.F_SUB).pack(anchor="w", padx=24, pady=(16, 8))
 
-        ctk.CTkLabel(opts, text="Options", text_color=p["muted"], font=f["subtitle"]).pack(anchor="w", padx=24, pady=(16, 8))
-
-        self.dry_run_check = ctk.CTkCheckBox(opts, text="Dry Run (Preview only)", variable=self.dry_run_var, font=f["label"], text_color=p["text"], hover_color=p["blue"], fg_color=p["blue"], checkbox_width=18, checkbox_height=18)
+        self.dry_run_check = ctk.CTkCheckBox(opts, text="Dry Run (Preview only)", variable=self.dry_run_var, font=p.F_LABEL, text_color=p.C_TEXT, hover_color=self.BLUE, fg_color=self.BLUE, checkbox_width=18, checkbox_height=18)
         self.dry_run_check.pack(anchor="w", padx=24, pady=6)
 
-        self.recursive_check = ctk.CTkCheckBox(opts, text="Include Subdirectories", variable=self.recursive_var, font=f["label"], text_color=p["text"], hover_color=p["blue"], fg_color=p["blue"], command=self._on_recursive_toggle, checkbox_width=18, checkbox_height=18)
+        self.recursive_check = ctk.CTkCheckBox(opts, text="Include Subdirectories", variable=self.recursive_var, font=p.F_LABEL, text_color=p.C_TEXT, hover_color=self.BLUE, fg_color=self.BLUE, command=self._on_recursive_toggle, checkbox_width=18, checkbox_height=18)
         self.recursive_check.pack(anchor="w", padx=24, pady=(6, 16))
 
         # CARD 3: Path
-        path_card = ctk.CTkFrame(self, fg_color=p["card"], corner_radius=16)
+        path_card = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         path_card.grid(row=1, column=0, columnspan=2, padx=12, pady=12, sticky="nsew")
-
-        ctk.CTkLabel(path_card, text="Target Directory", text_color=p["muted"], font=f["subtitle"]).pack(anchor="w", padx=24, pady=(14, 6))
+        ctk.CTkLabel(path_card, text="Target Directory", text_color=p.C_MUTED, font=p.F_SUB).pack(anchor="w", padx=24, pady=(14, 6))
 
         path_frame = ctk.CTkFrame(path_card, fg_color="transparent")
         path_frame.pack(fill="x", padx=20, pady=(0, 18))
 
-        self.path_entry = ctk.CTkEntry(path_frame, placeholder_text="Select a directory path...", fg_color=p["input_bg"], border_color=p["border"], text_color=p["text"], font=f["console"], height=38, corner_radius=8, textvariable=self.path_var)
+        self.path_entry = ctk.CTkEntry(path_frame, placeholder_text="Select a directory path...", fg_color=p.C_ENTRY, border_color=p.C_BORDER, text_color=p.C_TEXT, font=p.F_CONSOLE, height=38, corner_radius=8, textvariable=self.path_var)
         self.path_entry.pack(side="left", fill="x", expand=True, padx=(0, 12))
 
-        browse_kwargs = dict(text="Browse", font=f["button"], fg_color=p["blue"], hover_color="#004BB3", height=38, width=110, corner_radius=8, command=self._select_directory)
-        if os.path.exists(icon_path := (ICON_INSTALL if os.path.exists(ICON_INSTALL) else ICON_SOURCE)):
-            try:
-                from PIL import Image as PILImage
-                img = PILImage.open(icon_path).resize((18, 18), PILImage.Resampling.LANCZOS)
-                self._browse_icon = ctk.CTkImage(light_image=img, dark_image=img, size=(18, 18))
-                browse_kwargs["image"] = self._browse_icon
-                browse_kwargs["text"] = " Browse"
-                browse_kwargs["compound"] = "left"
-            except Exception:
-                pass
-
-        self.browse_btn = ctk.CTkButton(path_frame, **browse_kwargs)
+        self.browse_btn = ctk.CTkButton(path_frame, text="Browse", font=p.F_BTN, fg_color=self.BLUE, hover_color="#004BB3", height=38, width=110, corner_radius=8, command=self._select_directory)
         self.browse_btn.pack(side="left")
 
         # CARD 4: Actions
-        actions = ctk.CTkFrame(self, fg_color=p["card"], corner_radius=16)
+        actions = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         actions.grid(row=2, column=0, columnspan=2, padx=12, pady=12, sticky="nsew")
         actions.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="buttons")
         actions.grid_columnconfigure(4, weight=1, uniform="buttons")
@@ -485,43 +449,54 @@ class BoBnoxApp(ctk.CTk):
             except Exception:
                 pass
 
-        org_kw = dict(text="Organize", font=f["button"], fg_color=p["green"], hover_color="#1B9E46", text_color="#0D0D0D" if self.is_dark else "#FFFFFF", height=36, corner_radius=8, command=self._start_organizing)
+        org_kw = dict(text="Organize", font=p.F_BTN, fg_color=self.GREEN, hover_color="#1B9E46", text_color="#000000", height=36, corner_radius=8, command=self._start_organizing)
         if self.organize_img:
             org_kw["image"] = self.organize_img
             org_kw["compound"] = "left"
         self.organize_btn = ctk.CTkButton(actions, **org_kw)
         self.organize_btn.grid(row=0, column=0, padx=(16, 6), pady=14, sticky="ew")
 
-        self.undo_btn = ctk.CTkButton(actions, text="Undo", font=f["button"], fg_color=p["btn_secondary"], hover_color=p["btn_hover"], text_color=p["text"], height=36, corner_radius=8, command=self._undo_action, state="disabled")
+        self.undo_btn = ctk.CTkButton(actions, text="Undo", font=p.F_BTN, fg_color=p.C_BTN, hover_color=p.C_BTN_HOVER, text_color=p.C_TEXT, height=36, corner_radius=8, command=self._undo_action, state="disabled")
         self.undo_btn.grid(row=0, column=1, padx=6, pady=14, sticky="ew")
 
-        self.settings_btn = ctk.CTkButton(actions, text="Settings", font=f["button"], fg_color=p["btn_secondary"], hover_color=p["btn_hover"], text_color=p["text"], height=36, corner_radius=8, command=self._open_settings)
+        self.settings_btn = ctk.CTkButton(actions, text="Settings", font=p.F_BTN, fg_color=p.C_BTN, hover_color=p.C_BTN_HOVER, text_color=p.C_TEXT, height=36, corner_radius=8, command=self._open_settings)
         self.settings_btn.grid(row=0, column=2, padx=6, pady=14, sticky="ew")
 
-        self.open_folder_btn = ctk.CTkButton(actions, text="Open Folder", font=f["button"], fg_color=p["btn_secondary"], hover_color=p["btn_hover"], text_color=p["text"], height=36, corner_radius=8, command=self._open_folder)
+        self.open_folder_btn = ctk.CTkButton(actions, text="Open Folder", font=p.F_BTN, fg_color=p.C_BTN, hover_color=p.C_BTN_HOVER, text_color=p.C_TEXT, height=36, corner_radius=8, command=self._open_folder)
         self.open_folder_btn.grid(row=0, column=3, padx=6, pady=14, sticky="ew")
 
-        self.clear_btn = ctk.CTkButton(actions, text="Clear Console", font=f["button"], fg_color="transparent", hover_color=p["btn_hover"], text_color=p["coral"], border_color=p["coral"], border_width=1, height=36, corner_radius=8, command=self._clear_log)
+        self.clear_btn = ctk.CTkButton(actions, text="Clear Console", font=p.F_BTN, fg_color="transparent", hover_color=p.C_BTN_HOVER, text_color=self.CORAL, border_color=self.CORAL, border_width=1, height=36, corner_radius=8, command=self._clear_log)
         self.clear_btn.grid(row=0, column=4, padx=(6, 16), pady=14, sticky="ew")
 
         # CARD 5: Terminal
-        terminal = ctk.CTkFrame(self, fg_color=p["card"], corner_radius=16)
+        terminal = ctk.CTkFrame(self, fg_color=p.C_CARD, corner_radius=16)
         terminal.grid(row=3, column=0, columnspan=2, padx=12, pady=(12, 20), sticky="nsew")
 
         status_frame = ctk.CTkFrame(terminal, fg_color="transparent")
         status_frame.pack(fill="x", padx=24, pady=(16, 6))
-
-        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=p["green"], font=f["subtitle"])
+        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=self.GREEN, font=p.F_SUB)
         self.status_label.pack(side="left")
 
-        self.progress_bar = ctk.CTkProgressBar(terminal, height=4, fg_color=p["border"], progress_color=p["blue"])
+        self.progress_bar = ctk.CTkProgressBar(terminal, height=4, fg_color=p.C_BORDER, progress_color=self.BLUE)
         self.progress_bar.pack(fill="x", padx=24, pady=4)
         self.progress_bar.set(0.0)
 
-        self.console = ctk.CTkTextbox(terminal, fg_color=p["console_bg"], text_color=p["console_fg"], font=f["console"], corner_radius=8, border_color=p["border"], border_width=1)
+        self.console = ctk.CTkTextbox(terminal, fg_color=p.C_ENTRY, text_color=p.C_TEXT, font=p.F_CONSOLE, corner_radius=8, border_color=p.C_BORDER, border_width=1)
         self.console.pack(fill="both", expand=True, padx=20, pady=(12, 20))
         self.console.insert("end", "[INFO] Application initialized.\n[INFO] Awaiting target directory selection...\n")
         self.console.configure(state="disabled")
+
+    # --- Theme Toggle ---
+    def _toggle_theme(self):
+        if self.theme_switch.get() == 1:
+            ctk.set_appearance_mode("Dark")
+            self.theme_switch.configure(text="Dark Mode")
+            self.app_config["dark_mode"] = True
+        else:
+            ctk.set_appearance_mode("Light")
+            self.theme_switch.configure(text="Light Mode")
+            self.app_config["dark_mode"] = False
+        save_config(self.app_config)
 
     # --- Actions ---
     def _log(self, msg: str):
@@ -537,16 +512,6 @@ class BoBnoxApp(ctk.CTk):
         self.console.delete("1.0", "end")
         self.console.insert("end", "[INFO] Console cleared.\n")
         self.console.configure(state="disabled")
-
-    def _toggle_theme(self):
-        self.is_dark = self.theme_switch.get()
-        self.app_config["theme"] = "dark" if self.is_dark else "light"
-        save_config(self.app_config)
-        # Rebuild UI
-        for w in self.winfo_children():
-            w.destroy()
-        self._apply_theme()
-        self._create_widgets()
 
     def _select_directory(self):
         path = select_folder_native()
@@ -572,7 +537,7 @@ class BoBnoxApp(ctk.CTk):
             self._log("[WARN] Select a valid folder first.")
 
     def _open_settings(self):
-        SettingsDialog(self, self.app_config, self._on_settings_save, self.p, self.f)
+        SettingsDialog(self, self.app_config, self._on_settings_save)
 
     def _on_settings_save(self, new_config: dict):
         self.app_config = new_config
@@ -617,19 +582,19 @@ class BoBnoxApp(ctk.CTk):
             self._log(f"\n[DONE] {msg}")
             if not dry_run and self.organizer.create_log_file:
                 self._save_log_file(path)
-            self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=self.p["green"]))
+            self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=self.GREEN))
             self.after(0, lambda: self.undo_btn.configure(state="normal" if moved > 0 and not dry_run else "disabled"))
             self.after(0, lambda: self._set_ui_state(False))
         except Exception as e:
             self._log(f"[ERROR] {e}")
-            self.after(0, lambda: self.status_label.configure(text="Error", text_color=self.p["coral"]))
+            self.after(0, lambda: self.status_label.configure(text="Error", text_color=self.CORAL))
             self.after(0, lambda: self._set_ui_state(False))
 
     def _update_status(self, message: str, progress: float):
         self.after(0, lambda: self._do_update_status(message, progress))
 
     def _do_update_status(self, message: str, progress: float):
-        self.status_label.configure(text=message, text_color=self.p["text"])
+        self.status_label.configure(text=message, text_color=self.C_TEXT)
         self.progress_bar.set(progress)
         self._log(f"  {message}")
 
@@ -645,7 +610,7 @@ class BoBnoxApp(ctk.CTk):
         try:
             restored = self.organizer.undo_last_organization(self._update_status)
             self._log(f"\n[DONE] Undo complete! Restored {restored} files.")
-            self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=self.p["green"]))
+            self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=self.GREEN))
             self.after(0, lambda: self._set_ui_state(False))
             self.after(0, lambda: self.undo_btn.configure(state="disabled"))
         except Exception as e:
