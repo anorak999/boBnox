@@ -671,7 +671,7 @@ class BoBnoxApp(ctk.CTk):
         self.organizer = FileOrganizer(self.app_config)
         self.log_messages = []
 
-        self.title("BoBnox v2.0.1")
+        self.title("BoBnox v2.0.2")
         self.geometry("1100x800")
         self.minsize(900, 650)
 
@@ -732,7 +732,7 @@ class BoBnoxApp(ctk.CTk):
         sidebar.grid_propagate(False)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(pady=(24, 4), padx=20, anchor="w")
-        ctk.CTkLabel(sidebar, text="v2.0.1", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
+        ctk.CTkLabel(sidebar, text="v2.0.2", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
 
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=16)
 
@@ -775,12 +775,12 @@ class BoBnoxApp(ctk.CTk):
         opts = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=16)
         opts.grid(row=0, column=1, padx=8, pady=8, sticky="nsew")
         ctk.CTkLabel(opts, text="Options", text_color=self.C_MUTED, font=self.F_SUB).pack(anchor="w", padx=24, pady=(16, 8))
-        self.dry_run_check = ctk.CTkCheckBox(opts, text="Dry Run", variable=self.dry_run_var, font=self.F_LABEL, text_color=self.C_TEXT, hover_color=self.BLUE, fg_color=self.BLUE, checkbox_width=18, checkbox_height=18)
-        self.dry_run_check.pack(anchor="w", padx=24, pady=6)
-        self.recursive_check = ctk.CTkCheckBox(opts, text="Recursive", variable=self.recursive_var, font=self.F_LABEL, text_color=self.C_TEXT, hover_color=self.BLUE, fg_color=self.BLUE, command=self._on_recursive_toggle, checkbox_width=18, checkbox_height=18)
-        self.recursive_check.pack(anchor="w", padx=24, pady=6)
-        self.dedup_check = ctk.CTkCheckBox(opts, text="Dedup Scan", variable=self.dedup_var, font=self.F_LABEL, text_color=self.C_TEXT, hover_color=self.BLUE, fg_color=self.BLUE, checkbox_width=18, checkbox_height=18)
-        self.dedup_check.pack(anchor="w", padx=24, pady=(6, 16))
+        self.sw_dry = ctk.CTkSwitch(opts, text="⏀ Dry Run", variable=self.dry_run_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=self.BLUE, fg_color=self.C_BORDER)
+        self.sw_dry.pack(anchor="w", padx=24, pady=6)
+        self.sw_rec = ctk.CTkSwitch(opts, text="⟲ Recursive", variable=self.recursive_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=self.BLUE, fg_color=self.C_BORDER, command=self._on_recursive_toggle)
+        self.sw_rec.pack(anchor="w", padx=24, pady=6)
+        self.sw_dedup = ctk.CTkSwitch(opts, text="⎔ Dedup Scan", variable=self.dedup_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=self.BLUE, fg_color=self.C_BORDER)
+        self.sw_dedup.pack(anchor="w", padx=24, pady=(6, 16))
 
         # Row 1: Path
         path_card = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=16)
@@ -793,53 +793,58 @@ class BoBnoxApp(ctk.CTk):
         self.browse_btn = ctk.CTkButton(pf, text="Browse", font=self.F_BTN, fg_color=self.BLUE, hover_color="#004BB3", height=38, width=110, corner_radius=8, command=self._select_directory)
         self.browse_btn.pack(side="left")
 
-        # Row 2: Actions + Monitor
-        actions = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=16)
-        actions.grid(row=2, column=0, padx=8, pady=8, sticky="nsew")
-        actions.grid_columnconfigure((0, 1), weight=1)
+        # Row 2: Command Center (Buttons + Console merged)
+        cmd_center = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=16)
+        cmd_center.grid(row=2, column=0, columnspan=2, padx=8, pady=8, sticky="nsew")
+        cmd_center.grid_rowconfigure(1, weight=1)
+        cmd_center.grid_columnconfigure(0, weight=1)
+
+        # Button row
+        btn_row = ctk.CTkFrame(cmd_center, fg_color="transparent")
+        btn_row.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 8))
 
         self.organize_img = None
         if os.path.exists(SVG_PATH):
             try:
                 import cairosvg, io
                 from PIL import Image as PILImage
-                png_data = cairosvg.svg2png(url=SVG_PATH, output_width=20, output_height=20)
+                png_data = cairosvg.svg2png(url=SVG_PATH, output_width=18, output_height=18)
                 img = PILImage.open(io.BytesIO(png_data)).convert('RGBA')
-                self.organize_img = ctk.CTkImage(light_image=img, dark_image=img, size=(20, 20))
+                self.organize_img = ctk.CTkImage(light_image=img, dark_image=img, size=(18, 18))
             except Exception:
                 pass
 
-        org_kw = dict(text="Organize", font=self.F_BTN, fg_color=self.GREEN, hover_color="#1B9E46", text_color="#000000", height=36, corner_radius=8, command=self._start_organizing)
+        org_kw = dict(text="▶ Organize", font=self.F_BTN, fg_color=self.GREEN, hover_color="#1B9E46", text_color="#000000", height=40, corner_radius=8, command=self._start_organizing)
         if self.organize_img:
             org_kw["image"] = self.organize_img
             org_kw["compound"] = "left"
-        self.organize_btn = ctk.CTkButton(actions, **org_kw)
-        self.organize_btn.grid(row=0, column=0, padx=(16, 6), pady=14, sticky="ew")
+        self.organize_btn = ctk.CTkButton(btn_row, **org_kw)
+        self.organize_btn.pack(side="left", fill="x", expand=True, padx=4)
 
-        self.undo_btn = ctk.CTkButton(actions, text="Undo", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=36, corner_radius=8, command=self._undo_action, state="disabled")
-        self.undo_btn.grid(row=0, column=1, padx=6, pady=14, sticky="ew")
+        self.undo_btn = ctk.CTkButton(btn_row, text="⟲ Undo", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=8, command=self._undo_action, state="disabled")
+        self.undo_btn.pack(side="left", fill="x", expand=True, padx=4)
 
-        self.open_folder_btn = ctk.CTkButton(actions, text="Open Folder", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=36, corner_radius=8, command=self._open_folder)
-        self.open_folder_btn.grid(row=1, column=0, padx=(16, 6), pady=(0, 14), sticky="ew")
+        self.open_folder_btn = ctk.CTkButton(btn_row, text="📁 Open", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=8, command=self._open_folder)
+        self.open_folder_btn.pack(side="left", fill="x", expand=True, padx=4)
 
-        self.settings_btn = ctk.CTkButton(actions, text="Settings", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=36, corner_radius=8, command=self._open_settings)
-        self.settings_btn.grid(row=1, column=1, padx=6, pady=(0, 14), sticky="ew")
+        self.settings_btn = ctk.CTkButton(btn_row, text="⚙ Settings", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=8, command=self._open_settings)
+        self.settings_btn.pack(side="left", fill="x", expand=True, padx=4)
 
-        # Monitor (Bento Cell)
-        monitor = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=16)
-        monitor.grid(row=2, column=1, padx=8, pady=8, sticky="nsew")
-        ctk.CTkLabel(monitor, text="Process Monitor", text_color=self.C_MUTED, font=self.F_SUB).pack(anchor="w", padx=20, pady=(12, 4))
+        # Status + Progress inside command block
+        status_frame = ctk.CTkFrame(cmd_center, fg_color="transparent")
+        status_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 4))
 
-        self.status_label = ctk.CTkLabel(monitor, text="System Ready", text_color=self.GREEN, font=self.F_SUB)
-        self.status_label.pack(anchor="w", padx=20, pady=4)
+        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=self.GREEN, font=self.F_SUB)
+        self.status_label.pack(side="left")
 
-        self.progress_bar = ctk.CTkProgressBar(monitor, height=4, fg_color=self.C_BORDER, progress_color=self.BLUE)
-        self.progress_bar.pack(fill="x", padx=20, pady=4)
+        self.progress_bar = ctk.CTkProgressBar(status_frame, height=4, fg_color=self.C_BORDER, progress_color=self.BLUE)
+        self.progress_bar.pack(side="right", fill="x", expand=True, padx=(16, 0))
         self.progress_bar.set(0.0)
 
-        self.console = ctk.CTkTextbox(monitor, fg_color=self.C_ENTRY, text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=8, border_color=self.C_BORDER, border_width=1)
-        self.console.pack(fill="both", expand=True, padx=16, pady=(8, 16))
-        self.console.insert("end", "[INFO] boBnox v2.0.1 initialized.\n[INFO] Awaiting target directory...\n")
+        # Console inside command block
+        self.console = ctk.CTkTextbox(cmd_center, fg_color=self.C_ENTRY, text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=8, border_color=self.C_BORDER, border_width=1)
+        self.console.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
+        self.console.insert("end", ">> boBnox v2.0.2 initialized.\n>> Awaiting target directory...\n")
         self.console.configure(state="disabled")
 
     # --- Theme ---
@@ -915,9 +920,9 @@ class BoBnoxApp(ctk.CTk):
         state = "disabled" if disabled else "normal"
         for btn in [self.organize_btn, self.undo_btn, self.open_folder_btn, self.settings_btn, self.browse_btn]:
             btn.configure(state=state)
-        self.dry_run_check.configure(state=state)
-        self.recursive_check.configure(state=state)
-        self.dedup_check.configure(state=state)
+        self.sw_dry.configure(state=state)
+        self.sw_rec.configure(state=state)
+        self.sw_dedup.configure(state=state)
         self.path_entry.configure(state=state)
 
     def _start_organizing(self):
