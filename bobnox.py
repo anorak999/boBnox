@@ -670,25 +670,29 @@ class SettingsDialog(ctk.CTkToplevel):
         text = TEXT_DARK if is_dark else TEXT_LIGHT
         muted = MUTED_DARK if is_dark else MUTED_LIGHT
         border = BORDER_DARK if is_dark else BORDER_LIGHT
-        entry_bg = ENTRY_DARK if is_dark else ENTRY_LIGHT
 
-        self.configure(fg_color=bg)
+        # Fix: Match Toplevel bg to card color, zero padding to eliminate corner leak
+        self.configure(fg_color=card)
 
-        # Main BentoCard container
-        main_card = ctk.CTkFrame(self, fg_color=card, corner_radius=APP_RADIUS)
-        main_card.pack(fill="both", expand=True, padx=12, pady=12)
+        # Main container fills window completely (no corner leak)
+        main_container = ctk.CTkFrame(self, fg_color=card, corner_radius=0)
+        main_container.pack(fill="both", expand=True, padx=0, pady=0)
+
+        # Content frame with internal padding
+        content = ctk.CTkFrame(main_container, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=20, pady=16)
 
         # Header
-        ctk.CTkLabel(main_card, text="⚙ Settings", font=("Geist", 18, "bold"), text_color=text).pack(anchor="w", padx=20, pady=(20, 8))
-        ctk.CTkFrame(main_card, height=1, fg_color=border).pack(fill="x", padx=20, pady=(0, 12))
+        ctk.CTkLabel(content, text="⚙ Settings", font=("Geist", 18, "bold"), text_color=text).pack(anchor="w", pady=(0, 8))
+        ctk.CTkFrame(content, height=1, fg_color=border).pack(fill="x", pady=(0, 12))
 
         # Scrollable extension list
-        self.scroll_frame = ctk.CTkScrollableFrame(main_card, fg_color=card, corner_radius=CARD_RADIUS, border_color=border, border_width=1)
-        self.scroll_frame.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        self.scroll_frame = ctk.CTkScrollableFrame(content, fg_color=card, corner_radius=CARD_RADIUS, border_color=border, border_width=1)
+        self.scroll_frame.pack(fill="both", expand=True, pady=(0, 12))
 
         # Buttons
-        btn_frame = ctk.CTkFrame(main_card, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=16, pady=(0, 16))
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(0, 4))
         ctk.CTkButton(btn_frame, text="💾 Save", font=("Geist", 13, "bold"), fg_color=ACCENT_BLUE, hover_color="#004BB3", height=36, corner_radius=BTN_RADIUS, command=self._save).pack(side="left", padx=(0, 8))
         ctk.CTkButton(btn_frame, text="Cancel", font=("Geist", 13), fg_color=BTN_DARK if is_dark else BTN_LIGHT, hover_color=BTN_HOVER_DARK if is_dark else BTN_HOVER_LIGHT, text_color=text, height=36, corner_radius=BTN_RADIUS, command=self.destroy).pack(side="left")
 
