@@ -285,8 +285,15 @@ class RoundedButton(tk.Canvas):
     def __init__(self, parent, text, command=None, width=120, height=36,
                  bg="#FFFFFF", fg="#1D1D1F", hover_bg="#E8E8ED",
                  active_bg="#D2D2D7", radius=8, font=("Inter", 11, "bold"), **kwargs):
+        try:
+            parent_bg = parent.cget("bg")
+        except Exception:
+            try:
+                parent_bg = parent.cget("background")
+            except Exception:
+                parent_bg = "#F5F5F7"
         super().__init__(parent, width=width, height=height, highlightthickness=0,
-                         bg=parent.cget("bg") if hasattr(parent, 'cget') else "#F5F5F7", **kwargs)
+                         bg=parent_bg, **kwargs)
         self.command = command
         self.bg = bg
         self.fg = fg
