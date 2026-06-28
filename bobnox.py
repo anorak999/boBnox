@@ -871,6 +871,9 @@ class SettingsDialog(ctk.CTkToplevel):
         self.title("Settings")
         self.geometry("520x620")
         self.resizable(False, False)
+
+        # Anchor modal to parent window
+        self.transient(parent)
         self.grab_set()
 
         # Theme colors
@@ -883,6 +886,13 @@ class SettingsDialog(ctk.CTkToplevel):
         entry_bg = ENTRY_DARK if is_dark else ENTRY_LIGHT
         btn_dark = BTN_DARK if is_dark else BTN_LIGHT
         btn_hover = BTN_HOVER_DARK if is_dark else BTN_HOVER_LIGHT
+
+        # Center on parent
+        px, py = parent.winfo_x(), parent.winfo_y()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + (pw // 2) - 260
+        y = py + (ph // 2) - 310
+        self.geometry(f"520x620+{max(0, x)}+{max(0, y)}")
 
         # FIX: Explicit bg_color on Toplevel
         self.configure(fg_color=card, bg_color=card)
@@ -919,16 +929,6 @@ class SettingsDialog(ctk.CTkToplevel):
 
         self.extension_entries = {}
         self.after(30, self._render_mappings)
-        self.after(50, lambda: self._center_on_parent(parent))
-
-    def _center_on_parent(self, parent):
-        self.update_idletasks()
-        w, h = 520, 620
-        px, py = parent.winfo_x(), parent.winfo_y()
-        pw, ph = parent.winfo_width(), parent.winfo_height()
-        x = px + (pw // 2) - (w // 2)
-        y = py + (ph // 2) - (h // 2)
-        self.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
 
     def _render_mappings(self):
         is_dark = ctk.get_appearance_mode() == "Dark"
