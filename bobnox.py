@@ -227,7 +227,6 @@ class MimeValidator:
 class DeduplicationEngine:
     def __init__(self, chunk_size: int = 65536):
         self.chunk_size = chunk_size
-        self.hash_registry = {}
 
     def compute_sha256(self, file_path: str) -> str:
         sha256 = hashlib.sha256()
@@ -250,9 +249,6 @@ class DeduplicationEngine:
                 except (IOError, OSError):
                     pass
         return duplicates
-
-    def reset(self):
-        self.hash_registry.clear()
 
 
 # ======================================================================
@@ -297,7 +293,13 @@ class TransactionLedger:
             db_path = str(CONFIG_DIR / "bobnox_ledger.db")
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_schema()
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
 
     def _init_schema(self):
         with self.conn:
@@ -476,11 +478,49 @@ class ReflinkDeduplicator:
 class StructuralIntegrityValidator:
     def __init__(self):
         self.signature_matrix = {
-            ".pdf": b"\x25\x50\x44\x46", ".zip": b"\x50\x4B\x03\x04",
-            ".jar": b"\x50\x4B\x03\x04", ".png": b"\x89\x50\x4E\x47",
-            ".elf": b"\x7F\x45\x4C\x46", ".jpg": b"\xFF\xD8\xFF",
-            ".gif": b"\x47\x49\x46\x38", ".mp3": b"\x49\x44\x33",
-            ".mp4": b"\x00\x00\x00\x18", ".py": None,
+            # Documents
+            ".pdf": b"\x25\x50\x44\x46",
+            # Archives
+            ".zip": b"\x50\x4B\x03\x04", ".jar": b"\x50\x4B\x03\x04",
+            ".rar": b"\x52\x61\x72\x21", ".7z": b"\x37\x7A\xBC\xAF",
+            ".gz": b"\x1F\x8B", ".bz2": b"\x42\x5A\x68",
+            ".tar": None,  # TAR has no magic header
+            # Images
+            ".png": b"\x89\x50\x4E\x47", ".jpg": b"\xFF\xD8\xFF",
+            ".gif": b"\x47\x49\x46\x38", ".bmp": b"\x42\x4D",
+            ".tiff": b"\x49\x49\x2A\x00", ".tif": b"\x49\x49\x2A\x00",
+            ".webp": b"\x52\x49\x46\x46", ".ico": b"\x00\x00\x01\x00",
+            ".heic": b"\x66\x74\x79\x70", ".heif": b"\x66\x74\x79\x70",
+            # Audio
+            ".mp3": b"\x49\x44\x33", ".wav": b"\x52\x49\x46\x46",
+            ".flac": b"\x66\x4C\x61\x43", ".ogg": b"\x4F\x67\x67\x53",
+            ".aac": b"\xFF\xF1", ".m4a": b"\x66\x74\x79\x70",
+            # Video
+            ".mp4": b"\x00\x00\x00\x18", ".mov": b"\x66\x74\x79\x70",
+            ".avi": b"\x52\x49\x46\x46", ".mkv": b"\x1A\x45\xDF\xA3",
+            ".webm": b"\x1A\x45\xDF\xA3", ".flv": b"\x46\x4C\x56\x01",
+            ".wmv": b"\x30\x26\xB2\x75",
+            # Executables
+            ".exe": b"\x4D\x5A", ".msi": b"\xD0\xCF\x11\xE0",
+            ".dll": b"\x4D\x5A", ".so": b"\x7F\x45\x4C\x46",
+            ".elf": b"\x7F\x45\x4C\x46",
+            # Fonts
+            ".ttf": b"\x00\x01\x00\x00", ".otf": b"\x4F\x54\x54\x4F",
+            ".woff": b"\x77\x4F\x46\x46", ".woff2": b"\x77\x4F\x46\x32",
+            # Text/code (no magic header)
+            ".py": None, ".js": None, ".html": None, ".css": None,
+            ".java": None, ".cpp": None, ".c": None, ".h": None,
+            ".sh": None, ".bash": None, ".zsh": None, ".fish": None,
+            ".rb": None, ".php": None, ".pl": None, ".pm": None,
+            ".go": None, ".rs": None, ".cs": None, ".ts": None,
+            ".jsx": None, ".tsx": None, ".vue": None, ".svelte": None,
+            ".json": None, ".xml": None, ".yaml": None, ".yml": None,
+            ".toml": None, ".ini": None, ".cfg": None, ".conf": None,
+            ".md": None, ".txt": None, ".log": None, ".rtf": None,
+            ".csv": None, ".tsv": None, ".sql": None,
+            ".scss": None, ".sass": None, ".less": None,
+            ".lock": None, ".theme": None,
+            ".makefile": None, ".cmake": None, ".gradle": None,
         }
         self.max_read = 16
 
@@ -498,7 +538,7 @@ class StructuralIntegrityValidator:
             return {"status": "ERROR", "reason": "Unreadable"}
         if header.startswith(expected):
             return {"status": "VALIDATED", "type": ext}
-        return {"status": "ANOMALY", "action": "QUARANTINE", "ext": ext}
+        return {"status": "MISMATCH", "action": "WARN", "ext": ext}
 
 
 # ======================================================================
@@ -513,7 +553,7 @@ class ShannonEntropyAnalyzer:
             return 0.0
         try:
             with open(file_path, "rb") as f:
-                data = f.read(min(size, 10_000_000))  # Cap at 10MB
+                data = f.read(min(size, 1_000_000))  # Cap at 1MB
         except (IOError, OSError):
             return 0.0
         counts = collections.Counter(data)
@@ -526,10 +566,20 @@ class ShannonEntropyAnalyzer:
     def classify(self, file_path: str) -> dict:
         e = self.calculate_entropy(file_path)
         _, ext = os.path.splitext(file_path.lower())
-        # Archive/compressed files naturally have high entropy - don't quarantine them
-        archive_exts = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz', '.zst', '.torrent'}
-        if ext in archive_exts:
-            tier, action = "COMPRESSED", "STANDARD_SORT"
+        # Known high-entropy file types that should always be sorted normally
+        known_media_exts = {
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif', '.ico',
+            '.tiff', '.tif', '.raw', '.cr2', '.nef', '.arw', '.psd', '.svg',
+            '.mp3', '.wav', '.aac', '.flac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.mid', '.midi',
+            '.mp4', '.mov', '.avi', '.mkv', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.3gp', '.vob',
+            '.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz', '.zst', '.tgz',
+            '.torrent', '.iso', '.img', '.deb', '.rpm',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.ttf', '.otf', '.woff', '.woff2', '.eot',
+            '.stl', '.obj', '.fbx', '.blend',
+        }
+        if ext in known_media_exts:
+            tier, action = "KNOWN_MEDIA", "STANDARD_SORT"
         elif e < 4.5:
             tier, action = "STRUCTURED", "STANDARD_SORT"
         elif e <= 6.8:
@@ -730,19 +780,72 @@ class BobnoxCLI:
 # ======================================================================
 DEFAULT_CONFIG = {
     "extension_map": {
+        # Images
         '.jpg': 'Images', '.jpeg': 'Images', '.png': 'Images', '.gif': 'Images',
-        '.bmp': 'Images', '.svg': 'Images', '.tiff': 'Images', '.webp': 'Images', '.heic': 'Images',
+        '.bmp': 'Images', '.svg': 'Images', '.tiff': 'Images', '.tif': 'Images',
+        '.webp': 'Images', '.heic': 'Images', '.heif': 'Images', '.ico': 'Images',
+        '.raw': 'Images', '.cr2': 'Images', '.nef': 'Images', '.arw': 'Images',
+        '.psd': 'Images', '.ai': 'Images', '.eps': 'Images', '.indd': 'Images',
+        # Documents
         '.pdf': 'Documents', '.doc': 'Documents', '.docx': 'Documents',
-        '.txt': 'Text Documents', '.rtf': 'Documents', '.odt': 'Documents', '.md': 'Text Documents',
+        '.rtf': 'Documents', '.odt': 'Documents', '.pages': 'Documents',
+        '.epub': 'Documents', '.mobi': 'Documents',
+        # Text Documents
+        '.txt': 'Text Documents', '.md': 'Text Documents', '.markdown': 'Text Documents',
+        '.log': 'Text Documents', '.ini': 'Text Documents', '.cfg': 'Text Documents',
+        '.conf': 'Text Documents', '.env': 'Text Documents', '.properties': 'Text Documents',
+        # Spreadsheets
         '.xls': 'Spreadsheets', '.xlsx': 'Spreadsheets', '.csv': 'Spreadsheets',
-        '.ppt': 'Presentations', '.pptx': 'Presentations',
-        '.mp3': 'Audio', '.wav': 'Audio', '.aac': 'Audio', '.flac': 'Audio', '.ogg': 'Audio', '.m4a': 'Audio',
-        '.mp4': 'Videos', '.mov': 'Videos', '.avi': 'Videos', '.mkv': 'Videos', '.wmv': 'Videos', '.flv': 'Videos',
+        '.tsv': 'Spreadsheets', '.ods': 'Spreadsheets', '.numbers': 'Spreadsheets',
+        # Presentations
+        '.ppt': 'Presentations', '.pptx': 'Presentations', '.key': 'Presentations',
+        '.odp': 'Presentations',
+        # Audio
+        '.mp3': 'Audio', '.wav': 'Audio', '.aac': 'Audio', '.flac': 'Audio',
+        '.ogg': 'Audio', '.m4a': 'Audio', '.wma': 'Audio', '.opus': 'Audio',
+        '.aiff': 'Audio', '.mid': 'Audio', '.midi': 'Audio',
+        # Videos
+        '.mp4': 'Videos', '.mov': 'Videos', '.avi': 'Videos', '.mkv': 'Videos',
+        '.wmv': 'Videos', '.flv': 'Videos', '.webm': 'Videos', '.m4v': 'Videos',
+        '.mpg': 'Videos', '.mpeg': 'Videos', '.3gp': 'Videos', '.vob': 'Videos',
+        # Archives
         '.zip': 'Archives', '.rar': 'Archives', '.7z': 'Archives', '.tar': 'Archives',
-        '.gz': 'Archives', '.torrent': 'Archives',
-        '.py': 'Scripts', '.js': 'Scripts', '.html': 'Web Files', '.css': 'Web Files',
-        '.java': 'Code', '.cpp': 'Code', '.c': 'Code', '.sh': 'Scripts',
+        '.gz': 'Archives', '.bz2': 'Archives', '.xz': 'Archives', '.zst': 'Archives',
+        '.tar.gz': 'Archives', '.tgz': 'Archives', '.tar.bz2': 'Archives',
+        '.tar.xz': 'Archives', '.deb': 'Archives', '.rpm': 'Archives',
+        '.torrent': 'Archives', '.iso': 'Archives', '.img': 'Archives',
+        # Code - Web
+        '.html': 'Web Files', '.htm': 'Web Files', '.css': 'Web Files',
+        '.scss': 'Code', '.sass': 'Code', '.less': 'Code',
+        '.js': 'Scripts', '.jsx': 'Code', '.ts': 'Code', '.tsx': 'Code',
+        '.vue': 'Code', '.svelte': 'Code',
+        # Code - Backend
+        '.py': 'Scripts', '.pyw': 'Scripts', '.sh': 'Scripts', '.bash': 'Scripts',
+        '.zsh': 'Scripts', '.fish': 'Scripts', '.ps1': 'Scripts', '.bat': 'Scripts', '.cmd': 'Scripts',
+        '.rb': 'Code', '.php': 'Code', '.pl': 'Code', '.pm': 'Code',
+        '.java': 'Code', '.kt': 'Code', '.scala': 'Code', '.groovy': 'Code',
+        '.go': 'Code', '.rs': 'Code', '.c': 'Code', '.h': 'Code',
+        '.cpp': 'Code', '.hpp': 'Code', '.cc': 'Code', '.cxx': 'Code',
+        '.cs': 'Code', '.fs': 'Code', '.vb': 'Code',
+        # Code - Config/Data
+        '.json': 'Code', '.xml': 'Code', '.yaml': 'Code', '.yml': 'Code',
+        '.toml': 'Code', '.ini': 'Code', '.cfg': 'Code', '.conf': 'Code',
+        '.lock': 'Code', '.theme': 'Code',
+        # Code - Build/Dev
+        '.makefile': 'Code', '.cmake': 'Code', '.gradle': 'Code',
+        '.sbt': 'Code', '.maven': 'Code',
+        # Executables/Installers
         '.exe': 'Executables', '.msi': 'Installers', '.dmg': 'Installers',
+        '.app': 'Executables', '.apk': 'Installers', '.ipa': 'Installers',
+        '.appimage': 'Executables', '.snap': 'Installers', '.flatpak': 'Installers',
+        # Fonts
+        '.ttf': 'Fonts', '.otf': 'Fonts', '.woff': 'Fonts', '.woff2': 'Fonts', '.eot': 'Fonts',
+        # 3D/CAD
+        '.stl': '3D Files', '.obj': '3D Files', '.fbx': '3D Files', '.blend': '3D Files',
+        '.dwg': '3D Files', '.dxf': '3D Files', '.step': '3D Files', '.iges': '3D Files',
+        # Data/Business
+        '.db': 'Databases', '.sqlite': 'Databases', '.sql': 'Databases',
+        '.mdb': 'Databases', '.accdb': 'Databases',
     },
     "organize_subdirectories": False,
     "create_log_file": True,
@@ -796,6 +899,22 @@ class FileOrganizer:
         self.dest_pattern = None
         self.conflict_resolver = GtkConflictResolver()
         self.guard = PosixGuard()
+        self.async_processor = AsyncFileProcessor(max_workers=4)
+
+    def _validate_and_route(self, file_path: str, directory: str,
+                            use_mime: bool = False, include_hidden: bool = False) -> Optional[Path]:
+        fp = Path(file_path)
+        if not fp.is_file() or not self.guard.validate_file(str(fp), include_hidden=include_hidden):
+            return None
+        integrity = self.struct_validator.analyze_file(str(fp))
+        if integrity.get("status") == "ANOMALY":
+            return None
+        ext = fp.suffix.lower()
+        if use_mime and self.mime_validator:
+            folder_name = self.mime_validator.route_by_mime(str(fp))
+        else:
+            folder_name = self.extension_map.get(ext, f"{ext[1:].upper()} Files" if ext else "Other Files")
+        return Path(directory) / folder_name / fp.name
 
     def organize_directory(self, directory_path: str, status_callback, dry_run: bool = False,
                            use_mime: bool = False, dedup_scan: bool = False,
@@ -811,7 +930,6 @@ class FileOrganizer:
             duplicates = self.dedup_engine.scan_directory(directory_path)
             if duplicates:
                 status_callback(f"Found {len(duplicates)} duplicates.", 0.0)
-            self.dedup_engine.reset()
 
         if self.organize_subdirectories:
             files_to_move = [f for f in directory.rglob('*') if f.is_file() and f.name != os.path.basename(__file__)]
@@ -845,11 +963,16 @@ class FileOrganizer:
 
         self._move_history.clear()
 
+        move_map = {}
+        skip_anomaly = set()
         for i, fp in enumerate(files_to_move):
             integrity = self.struct_validator.analyze_file(str(fp))
             if integrity.get("status") == "ANOMALY":
                 status_callback(f"[ANOMALY] {fp.name} — magic byte mismatch, quarantined", (i + 1) / total)
+                skip_anomaly.add(str(fp))
                 continue
+            if integrity.get("status") == "MISMATCH":
+                status_callback(f"[WARN] {fp.name} — magic bytes don't match {integrity.get('ext', '?')}, sorting by extension", (i + 1) / total)
 
             ext = fp.suffix.lower()
             if use_mime and self.mime_validator:
@@ -878,37 +1001,35 @@ class FileOrganizer:
                     counter += 1
                     dest_path = dest / f"{base}_{counter}{e}"
 
-            if not dry_run:
-                try:
-                    file_hash = self.dedup_engine.compute_sha256(str(fp))
-                    shutil.move(str(fp), str(dest_path))
-                    self.ledger.log_move(str(fp), str(dest_path), file_hash)
-                    self.xattr_layer.write_states(str(dest_path), {"moved_at": str(time.time()), "original_path": str(fp)})
-                    self._move_history.append((dest_path, fp))
-                    moved += 1
-                except Exception as ex:
-                    logger.error(f"Failed: {fp.name}: {ex}")
-                    continue
-            else:
-                moved += 1
+            move_map[str(fp)] = str(dest_path)
+            status_callback(f"{'Would move' if dry_run else 'Queued'} ({i+1}/{total}): {fp.relative_to(directory)} → {folder_name}", (i + 1) / total)
 
-            status_callback(f"{'Would move' if dry_run else 'Moving'} ({i+1}/{total}): {fp.relative_to(directory)} → {folder_name}", (i + 1) / total)
+        if dry_run:
+            moved = len(move_map)
+        else:
+            results = asyncio.run(self.async_processor.bulk_move(move_map))
+            for (src, dest_p), success in zip(move_map.items(), results):
+                if success:
+                    self.ledger.log_move(src, dest_p)
+                    self.xattr_layer.write_states(dest_p, {"moved_at": str(time.time()), "original_path": src})
+                    self._move_history.append((Path(dest_p), Path(src)))
+                    moved += 1
+                else:
+                    logger.error(f"Async move failed: {src}")
 
         status_callback(f"Done. Moved: {moved}  Skipped (guard): {skipped_guard}  Skipped (entropy): {skipped_entropy}", 1.0)
         return moved
 
     def organize_single_file(self, file_path: str, watch_dir: str, dry_run: bool = False):
-        fp = Path(file_path)
-        if not fp.is_file() or not self.guard.validate_file(str(fp)):
+        dest_path = self._validate_and_route(file_path, watch_dir)
+        if dest_path is None:
             return
-        ext = fp.suffix.lower()
-        folder_name = self.extension_map.get(ext, f"{ext[1:].upper()} Files" if ext else "Other Files")
-        dest = Path(watch_dir) / folder_name
         if not dry_run:
-            dest.mkdir(parents=True, exist_ok=True)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                shutil.move(str(fp), str(dest / fp.name))
-                self.ledger.log_move(str(fp), str(dest / fp.name))
+                shutil.move(str(file_path), str(dest_path))
+                self.ledger.log_move(str(file_path), str(dest_path))
+                self.xattr_layer.write_states(str(dest_path), {"moved_at": str(time.time()), "original_path": str(file_path)})
             except Exception as e:
                 logger.error(f"Watch move failed: {e}")
 
@@ -1606,3 +1727,4 @@ if __name__ == "__main__":
     else:
         app = BoBnoxApp()
         app.mainloop()
+        app.organizer.ledger.close()
