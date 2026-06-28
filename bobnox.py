@@ -1388,7 +1388,6 @@ class BoBnoxApp(ctk.CTk):
 
         self.settings_btn = ctk.CTkButton(actions_card, text="⚙  Settings", font=(gf, 11, "bold"), fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, corner_radius=BTN_RADIUS, height=48, command=self._open_settings)
         self.settings_btn.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
-        self._build_undo_row(actions_card, gf)
 
         monitor = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
         monitor.grid(row=2, column=1, padx=(3, 6), pady=(3, 6), sticky="nsew")
