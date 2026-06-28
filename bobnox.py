@@ -5,11 +5,28 @@ from tkinter import filedialog, messagebox, ttk
 import threading
 import io
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
+
+# --- Logging Configuration ---
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+def setup_logging(level: int = logging.INFO) -> logging.Logger:
+    """Set up logging with proper formatting."""
+    logger = logging.getLogger("bobnox")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
+        logger.addHandler(handler)
+    logger.setLevel(level)
+    return logger
+
+logger = setup_logging()
 
 # --- Configuration ---
 DEFAULT_CONFIG = {
@@ -46,6 +63,7 @@ DEFAULT_CONFIG = {
 
 CONFIG_DIR = Path.home() / ".config" / "bobnox"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+HISTORY_FILE = CONFIG_DIR / "undo_history.json"
 
 
 def load_config() -> dict:
@@ -54,12 +72,11 @@ def load_config() -> dict:
         try:
             with open(CONFIG_FILE, 'r') as f:
                 user_config = json.load(f)
-            # Merge with defaults
             config = DEFAULT_CONFIG.copy()
             config.update(user_config)
             return config
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load config: {e}")
     return DEFAULT_CONFIG.copy()
 
 
@@ -69,43 +86,77 @@ def save_config(config: dict) -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
+        logger.info("Configuration saved successfully")
         return True
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to save config: {e}")
         return False
 
-# Optional SVG rendering support (cairosvg + Pillow). If unavailable we fall back to text button.
+
+def load_undo_history() -> list:
+    """Load undo history from file."""
+    if HISTORY_FILE.exists():
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load undo history: {e}")
+    return []
+
+
+def save_undo_history(history: list) -> bool:
+    """Save undo history to file."""
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save undo history: {e}")
+        return False
+
+
+# Optional SVG rendering support
 HAS_SVG_SUPPORT = False
 try:
     import cairosvg
     from PIL import Image, ImageTk
     HAS_SVG_SUPPORT = True
 except Exception:
-    # Missing optional packages; button will remain a text button
     HAS_SVG_SUPPORT = False
+
 
 # --- 1. CORE LOGIC CLASS ---
 class FileOrganizer:
-    """
-    Handles the actual file organization logic, decoupled from the GUI.
-    """
-    
+    """Handles the actual file organization logic, decoupled from the GUI."""
+
     def __init__(self, config: Optional[dict] = None):
         self.config = config or load_config()
         self.extension_map = self.config.get("extension_map", DEFAULT_CONFIG["extension_map"])
         self.organize_subdirectories = self.config.get("organize_subdirectories", False)
         self.create_log_file = self.config.get("create_log_file", True)
-        self._move_history: List[Tuple[Path, Path]] = []  # For undo functionality
+        self._move_history: List[Tuple[Path, Path]] = []
+        self._load_persistent_history()
+
+    def _load_persistent_history(self):
+        """Load undo history from persistent storage."""
+        history = load_undo_history()
+        self._move_history = [(Path(h["current"]), Path(h["original"])) for h in history]
+
+    def _save_persistent_history(self):
+        """Save undo history to persistent storage."""
+        history = [{"current": str(c), "original": str(o)} for c, o in self._move_history]
+        save_undo_history(history)
 
     def organize_directory(self, directory_path: str, status_callback, dry_run: bool = False) -> int:
         """
         Organizes files in the given directory into subfolders.
-        Uses a callback function to report progress back to the GUI.
-        
+
         Args:
             directory_path: Path to directory to organize
             status_callback: Callback function(message, progress_percent)
             dry_run: If True, only simulate without moving files
-            
+
         Returns:
             Number of files moved (or would be moved in dry run)
         """
@@ -113,8 +164,8 @@ class FileOrganizer:
             raise FileNotFoundError("The selected path is not a valid directory.")
 
         directory = Path(directory_path)
-        
-        # Filter out directories and the script file itself
+        logger.info(f"Organizing directory: {directory_path} (dry_run={dry_run})")
+
         if self.organize_subdirectories:
             files_to_move = [
                 f for f in directory.rglob('*')
@@ -125,10 +176,10 @@ class FileOrganizer:
                 f for f in directory.iterdir()
                 if f.is_file() and f.name != os.path.basename(__file__)
             ]
-        
+
         total_files = len(files_to_move)
         files_moved = 0
-        
+
         if total_files == 0:
             status_callback("No files to organize.", 1.0)
             return 0
@@ -137,58 +188,57 @@ class FileOrganizer:
 
         for i, file_path in enumerate(files_to_move):
             relative_path = file_path.relative_to(directory)
-            
-            # 1. Determine destination folder name
             file_extension = file_path.suffix.lower()
-            
+
             if file_extension in self.extension_map:
                 folder_name = self.extension_map[file_extension]
             else:
-                # Group unknown files
                 folder_name = f"{file_extension[1:].upper()} Files" if file_extension else "Other Files"
 
             dest_folder_path = directory / folder_name
 
-            # 2. Create folder if needed (not in dry run)
             if not dry_run and not dest_folder_path.exists():
                 dest_folder_path.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"Created directory: {dest_folder_path}")
 
-            # 3. Handle Duplicate File Names (Robust Naming)
             original_name = file_path.name
             base_name, ext = os.path.splitext(original_name)
             counter = 1
             destination_path = dest_folder_path / original_name
-            
+
             while destination_path.exists():
-                # Rename the file if it conflicts (e.g., 'file (1).ext')
                 new_name = f"{base_name} ({counter}){ext}"
                 destination_path = dest_folder_path / new_name
                 counter += 1
 
-            # 4. Move the file (or simulate in dry run)
             if not dry_run:
                 try:
                     shutil.move(str(file_path), str(destination_path))
                     self._move_history.append((destination_path, file_path))
                     files_moved += 1
+                    logger.info(f"Moved: {relative_path} -> {folder_name}")
                 except Exception as e:
+                    logger.error(f"Failed to move {original_name}: {e}")
                     status_callback(f"Failed to move {original_name}: {e}", (i + 1) / total_files)
                     continue
             else:
                 files_moved += 1
+                logger.info(f"[DRY RUN] Would move: {relative_path} -> {folder_name}")
 
-            # 5. Report progress back to the GUI
             progress_percent = (i + 1) / total_files
             action = "Would move" if dry_run else "Moving"
             status_message = f"{action} ({i + 1}/{total_files}): {relative_path} -> {folder_name}"
             status_callback(status_message, progress_percent)
+
+        if not dry_run and self._move_history:
+            self._save_persistent_history()
 
         return files_moved
 
     def undo_last_organization(self, status_callback) -> int:
         """
         Undo the last organization by moving files back to their original locations.
-        
+
         Returns:
             Number of files restored
         """
@@ -196,43 +246,109 @@ class FileOrganizer:
             status_callback("Nothing to undo.", 1.0)
             return 0
 
+        logger.info(f"Undoing last organization ({len(self._move_history)} files)")
         total = len(self._move_history)
         restored = 0
 
         for i, (current_path, original_path) in enumerate(self._move_history):
             if current_path.exists():
-                # Ensure original directory exists
                 original_path.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     shutil.move(str(current_path), str(original_path))
                     restored += 1
+                    logger.info(f"Restored: {current_path.name} -> {original_path.parent}")
                 except Exception as e:
+                    logger.error(f"Failed to restore {current_path.name}: {e}")
                     status_callback(f"Failed to restore {current_path.name}: {e}", (i + 1) / total)
             progress = (i + 1) / total
             status_callback(f"Restoring ({i + 1}/{total}): {current_path.name}", progress)
 
         self._move_history.clear()
+        self._save_persistent_history()
         return restored
 
 
-# --- 2. GUI APPLICATION CLASS ---
+# --- 2. SETTINGS DIALOG ---
+class SettingsDialog(tk.Toplevel):
+    """Dialog for editing extension mappings and settings."""
+
+    def __init__(self, parent, config: dict, on_save_callback):
+        super().__init__(parent)
+        self.config = config.copy()
+        self.on_save = on_save_callback
+        self.title("Settings")
+        self.geometry("500x600")
+        self.configure(bg="#1E1E1E")
+        self.resizable(False, False)
+        self.grab_set()
+
+        self.extension_entries = {}
+        self._create_widgets()
+
+    def _create_widgets(self):
+        style = ttk.Style(self)
+        style.theme_use('clam')
+        style.configure("Dialog.TFrame", background="#1E1E1E")
+        style.configure("Dialog.TLabel", background="#1E1E1E", foreground="#FFFFFF", font=("Inter", 11))
+        style.configure("Dialog.TButton", font=("Inter", 11, "bold"), padding=[10, 5])
+
+        main_frame = ttk.Frame(self, padding="15", style="Dialog.TFrame")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Extension Mappings", font=("Inter", 14, "bold"),
+                  background="#1E1E1E", foreground="#0078D4").pack(pady=(0, 10))
+
+        canvas = tk.Canvas(main_frame, bg="#1E1E1E", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style="Dialog.TFrame")
+
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        row = 0
+        for ext, folder in sorted(self.config.get("extension_map", {}).items()):
+            ttk.Label(scrollable_frame, text=ext, style="Dialog.TLabel").grid(
+                row=row, column=0, sticky="w", padx=(0, 10), pady=2)
+
+            entry = ttk.Entry(scrollable_frame, width=20)
+            entry.insert(0, folder)
+            entry.grid(row=row, column=1, sticky="ew", pady=2)
+            self.extension_entries[ext] = entry
+            row += 1
+
+        button_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
+        button_frame.pack(pady=(15, 0))
+
+        ttk.Button(button_frame, text="Save", command=self._save).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="left", padx=5)
+
+    def _save(self):
+        for ext, entry in self.extension_entries.items():
+            self.config["extension_map"][ext] = entry.get()
+        self.on_save(self.config)
+        self.destroy()
+
+
+# --- 3. GUI APPLICATION CLASS ---
 class FileOrganizerApp(tk.Tk):
-    """
-    Aesthetically improved GUI application for FileOrganizer.
-    """
+    """Aesthetically improved GUI application for FileOrganizer."""
+
     def __init__(self):
         super().__init__()
         self.config = load_config()
         self.organizer = FileOrganizer(self.config)
-        self.title("boBnox(V3.1)")
-        # Smaller, minimal window size
+        self.title("boBnox(V3.2)")
         self.geometry("520x480")
         self.configure(bg="#1E1E1E")
         self.path_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready. Select a folder to begin.")
         self.dry_run_var = tk.BooleanVar(value=False)
         self.recursive_var = tk.BooleanVar(value=self.config.get("organize_subdirectories", False))
-        self.log_messages = []  # Store log messages for this run
+        self.log_messages = []
 
         self.setup_styles()
         self.create_widgets()
@@ -242,49 +358,28 @@ class FileOrganizerApp(tk.Tk):
         style = ttk.Style(self)
         style.theme_use('clam')
 
-        # Background colors and fonts (attached to self for reuse)
         self.BG_DARK = "#1E1E1E"
         self.BG_MID = "#2D2D30"
         self.FG_LIGHT = "#FFFFFF"
-        self.ACCENT_COLOR = "#0078D4"  # Blue accent
+        self.ACCENT_COLOR = "#0078D4"
 
-        # Configure ttk styles
         style.configure("TFrame", background=self.BG_DARK)
         style.configure("TLabel", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 12))
         style.configure("Title.TLabel", font=("Inter", 24, "bold"), foreground=self.ACCENT_COLOR)
         style.configure("Status.TLabel", background=self.BG_DARK, foreground="#999999", font=("Inter", 10, "italic"))
-
-        # Entry/Input
         style.configure("TEntry", fieldbackground=self.BG_MID, foreground=self.FG_LIGHT, borderwidth=0, relief="flat", padding=8)
+        style.configure("TButton", font=("Inter", 12, "bold"), background=self.BG_DARK, foreground=self.FG_LIGHT, borderwidth=0, relief="flat", padding=[15, 8])
+        style.map("TButton", background=[('active', '#005A9E'), ('disabled', '#555555')], foreground=[('active', 'white')])
+        style.configure("TProgressbar", troughcolor=self.BG_MID, background=self.ACCENT_COLOR, troughrelief="flat", borderwidth=0)
+        style.configure("TCheckbutton", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 10))
+        style.map("TCheckbutton", background=[('active', self.BG_DARK)])
 
-        # Button Styles - prefer dark backgrounds so ttk Buttons don't create large blue bars
-        style.configure("TButton",
-                        font=("Inter", 12, "bold"),
-                        background=self.BG_DARK,
-                        foreground=self.FG_LIGHT,
-                        borderwidth=0,
-                        relief="flat",
-                        padding=[15, 8])
-        style.map("TButton",
-                  background=[('active', '#005A9E'), ('disabled', '#555555')],
-                  foreground=[('active', 'white')])
-
-        # Progress Bar
-        style.configure("TProgressbar",
-                        troughcolor=self.BG_MID,
-                        background=self.ACCENT_COLOR,
-                        troughrelief="flat",
-                        borderwidth=0)
-
-
-def create_widgets(self):
-        """Creates and positions all UI elements using grid for precise control."""
-        # Main Frame
+    def create_widgets(self):
+        """Creates and positions all UI elements."""
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(expand=True, fill=tk.BOTH)
         main_frame.grid_columnconfigure(0, weight=1)
 
-        # Path Entry and Browse Button
         path_frame = ttk.Frame(main_frame)
         path_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
         path_frame.grid_columnconfigure(0, weight=1)
@@ -295,31 +390,16 @@ def create_widgets(self):
         browse_button = ttk.Button(path_frame, text="Browse...", command=self.select_directory)
         browse_button.grid(row=0, column=1, padx=(10, 0))
 
-        # Options Frame
         options_frame = ttk.Frame(main_frame)
         options_frame.grid(row=1, column=0, sticky="ew", pady=(0, 15))
         options_frame.grid_columnconfigure(0, weight=1)
 
-        # Dry run checkbox
-        self.dry_run_check = ttk.Checkbutton(
-            options_frame,
-            text="Dry Run (Preview only)",
-            variable=self.dry_run_var,
-            style="TCheckbutton"
-        )
+        self.dry_run_check = ttk.Checkbutton(options_frame, text="Dry Run (Preview only)", variable=self.dry_run_var)
         self.dry_run_check.grid(row=0, column=0, sticky="w", padx=(0, 20))
 
-        # Recursive checkbox
-        self.recursive_check = ttk.Checkbutton(
-            options_frame,
-            text="Include Subdirectories",
-            variable=self.recursive_var,
-            style="TCheckbutton",
-            command=self._on_recursive_toggle
-        )
+        self.recursive_check = ttk.Checkbutton(options_frame, text="Include Subdirectories", variable=self.recursive_var, command=self._on_recursive_toggle)
         self.recursive_check.grid(row=0, column=1, sticky="w")
 
-        # Organize Button - SVG icon only
         assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
         svg_path = os.path.join(assets_dir, 'Sort--Streamline-Solar.svg')
 
@@ -329,157 +409,76 @@ def create_widgets(self):
                 png_bytes = cairosvg.svg2png(url=svg_path, output_width=48, output_height=48)
                 img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
                 self.organize_img = ImageTk.PhotoImage(img)
-                self.organize_button = tk.Button(
-                    main_frame,
-                    image=self.organize_img,
-                    command=self.start_organizing_thread,
-                    bd=0,
-                    highlightthickness=0,
-                    relief='flat',
-                    cursor='hand2',
-                    bg=self.BG_DARK,
-                    activebackground=self.BG_DARK
-                )
+                self.organize_button = tk.Button(main_frame, image=self.organize_img, command=self.start_organizing_thread, bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.BG_DARK, activebackground=self.BG_DARK)
             except Exception as e:
-                # If SVG rendering fails, show error and create minimal button
-                messagebox.showerror("Error", f"Failed to load SVG icon: {e}\nPlease install: pip install cairosvg Pillow")
-                self.organize_button = tk.Button(
-                    main_frame,
-                    text="▶",
-                    command=self.start_organizing_thread,
-                    font=("Arial", 24),
-                    bd=0,
-                    highlightthickness=0,
-                    relief='flat',
-                    cursor='hand2',
-                    bg=self.BG_DARK,
-                    fg=self.FG_LIGHT,
-                    activebackground=self.BG_DARK
-                )
+                self.organize_button = self._create_text_button(main_frame)
         else:
-            # Missing SVG file or dependencies
-            error_msg = "SVG icon not found" if not os.path.exists(svg_path) else "Missing cairosvg/Pillow"
-            messagebox.showwarning("Warning", f"{error_msg}\nPlease ensure assets/Sort--Streamline-Solar.svg exists and install: pip install cairosvg Pillow")
-            self.organize_button = tk.Button(
-                main_frame,
-                text="▶",
-                command=self.start_organizing_thread,
-                font=("Arial", 24),
-                bd=0,
-                highlightthickness=0,
-                relief='flat',
-                cursor='hand2',
-                bg=self.BG_DARK,
-                fg=self.FG_LIGHT,
-                activebackground=self.BG_DARK
-            )
+            self.organize_button = self._create_text_button(main_frame)
 
         self.organize_button.grid(row=2, column=0, pady=(10, 10))
 
-        # Secondary buttons frame
         secondary_frame = ttk.Frame(main_frame)
         secondary_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
         secondary_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
-        # Undo Button
-        self.undo_button = ttk.Button(
-            secondary_frame,
-            text="↩ Undo",
-            command=self.undo_last_action,
-            state='disabled'
-        )
+        self.undo_button = ttk.Button(secondary_frame, text="Undo", command=self.undo_last_action, state='disabled')
         self.undo_button.grid(row=0, column=0, sticky="ew", padx=(0, 5))
 
-        # Settings Button
-        self.settings_button = ttk.Button(
-            secondary_frame,
-            text="⚙ Settings",
-            command=self.open_settings
-        )
+        self.settings_button = ttk.Button(secondary_frame, text="Settings", command=self.open_settings)
         self.settings_button.grid(row=0, column=1, sticky="ew", padx=5)
 
-        # Clear Log Button
-        self.clear_log_button = ttk.Button(
-            secondary_frame,
-            text="🗑 Clear Log",
-            command=self.clear_log
-        )
+        self.clear_log_button = ttk.Button(secondary_frame, text="Clear Log", command=self.clear_log)
         self.clear_log_button.grid(row=0, column=2, sticky="ew", padx=(5, 0))
 
-        # Progress Bar
         self.progress_bar = ttk.Progressbar(main_frame, orient="horizontal", mode="determinate")
         self.progress_bar.grid(row=4, column=0, sticky="ew", pady=(0, 10))
 
-        # Status Label
         self.status_label = ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel")
         self.status_label.grid(row=5, column=0, sticky="w")
 
-        # Log Display (expandable)
         log_frame = ttk.Frame(main_frame)
         log_frame.grid(row=6, column=0, sticky="nsew", pady=(10, 0))
         log_frame.grid_columnconfigure(0, weight=1)
         log_frame.grid_rowconfigure(0, weight=1)
         main_frame.grid_rowconfigure(6, weight=1)
 
-        self.log_text = tk.Text(
-            log_frame,
-            height=8,
-            bg=self.BG_MID,
-            fg=self.FG_LIGHT,
-            font=("Consolas", 9),
-            relief='flat',
-            bd=0,
-            wrap='word',
-            state='disabled'
-        )
+        self.log_text = tk.Text(log_frame, height=8, bg=self.BG_MID, fg=self.FG_LIGHT, font=("Consolas", 9), relief='flat', bd=0, wrap='word', state='disabled')
         self.log_text.grid(row=0, column=0, sticky="nsew")
 
-        # Scrollbar for log
         log_scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
         log_scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
 
-        # Configure checkbutton style
-        style = ttk.Style(self)
-        style.configure("TCheckbutton", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 10))
-        style.map("TCheckbutton", background=[('active', self.BG_DARK)])
-
-
-# --- UI EVENT HANDLERS ---
+    def _create_text_button(self, parent):
+        """Create a fallback text button when SVG is unavailable."""
+        return tk.Button(parent, text="Organize", command=self.start_organizing_thread, font=("Inter", 12, "bold"), bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.ACCENT_COLOR, fg=self.FG_LIGHT, activebackground='#005A9E', padx=20, pady=8)
 
     def select_directory(self):
-        """Open a dialog to select a directory."""
         path = filedialog.askdirectory()
         if path:
             self.path_var.set(path)
 
     def _on_recursive_toggle(self):
-        """Handle recursive checkbox toggle."""
         self.config["organize_subdirectories"] = self.recursive_var.get()
         self.organizer.organize_subdirectories = self.recursive_var.get()
         save_config(self.config)
 
     def _log_to_ui(self, message: str):
-        """Add message to the log text widget."""
         self.log_text.config(state='normal')
         self.log_text.insert(tk.END, message + "\n")
         self.log_text.see(tk.END)
         self.log_text.config(state='disabled')
 
     def clear_log(self):
-        """Clear the log display."""
         self.log_text.config(state='normal')
         self.log_text.delete(1.0, tk.END)
         self.log_text.config(state='disabled')
         self.log_messages.clear()
 
     def open_settings(self):
-        """Open settings dialog."""
         SettingsDialog(self, self.config, self.on_settings_save)
 
     def on_settings_save(self, new_config: dict):
-        dict):
-        """Callback when settings are saved."""
         self.config = new_config
         self.organizer.config = new_config
         self.organizer.extension_map = new_config.get("extension_map", DEFAULT_CONFIG["extension_map"])
@@ -489,22 +488,17 @@ def create_widgets(self):
         save_config(new_config)
         messagebox.showinfo("Settings", "Settings saved successfully!")
 
-    # --- THREADING AND ASYNCHRONOUS EXECUTION ---
-
     def start_organizing_thread(self):
-        """Starts the file organization in a separate thread to keep the GUI responsive."""
         directory_path = self.path_var.get()
         if not os.path.isdir(directory_path):
             messagebox.showerror("Error", "Please select a valid directory first.")
             return
 
-        # Disable input while processing
         self._set_ui_state(disabled=True)
         self.status_var.set("Processing... Please wait.")
         self.progress_bar['value'] = 0
         self.clear_log()
 
-        # Initialize log for this run
         self.log_messages = []
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log_messages.append(f"=== Organization started at {timestamp} ===")
@@ -513,16 +507,10 @@ def create_widgets(self):
         self.log_messages.append(f"Recursive: {self.recursive_var.get()}")
         self.log_messages.append("")
 
-        # Start the organization task in a new thread
-        self.thread = threading.Thread(
-            target=self.organize_action,
-            args=(directory_path, self.dry_run_var.get()),
-            daemon=True
-        )
+        self.thread = threading.Thread(target=self.organize_action, args=(directory_path, self.dry_run_var.get()), daemon=True)
         self.thread.start()
 
     def undo_last_action(self):
-        """Undo the last organization."""
         if not self.organizer._move_history:
             messagebox.showinfo("Undo", "Nothing to undo.")
             return
@@ -538,14 +526,13 @@ def create_widgets(self):
         self.thread.start()
 
     def undo_action(self):
-        """Execute undo in background thread."""
         try:
             restored = self.organizer.undo_last_organization(self.update_status)
 
             if restored > 0:
-                final_message = f"✅ Undo complete! Restored {restored} files."
+                final_message = f"Undo complete! Restored {restored} files."
             else:
-                final_message = "✨ Nothing to restore."
+                final_message = "Nothing to restore."
 
             self.after(0, lambda: messagebox.showinfo("Undo Complete", final_message))
             self.after(0, self.reset_ui)
@@ -555,60 +542,41 @@ def create_widgets(self):
             self.after(0, self.reset_ui)
 
     def update_status(self, message, progress_value):
-        """Thread-safe status updater: schedule UI updates on the main thread."""
         try:
             self.after(0, lambda: self._update_status_ui(message, progress_value))
         except Exception:
             self._update_status_ui(message, progress_value)
 
     def _update_status_ui(self, message, progress_value):
-        """Actual UI update executed on the main thread."""
         self.status_var.set(message)
-        # Convert 0-1.0 progress to Tkinter's 0-100 scale
         try:
             self.progress_bar['value'] = progress_value * 100
         except Exception:
             pass
-        # Log the message
         self.log_messages.append(message)
         self._log_to_ui(message)
-        self.update_idletasks()  # Force GUI redraw
+        self.update_idletasks()
 
     def organize_action(self, directory_path, dry_run: bool):
-        """The function executed in the worker thread."""
         try:
-            # Update organizer with current settings
             self.organizer.organize_subdirectories = self.recursive_var.get()
 
-            files_moved = self.organizer.organize_directory(
-                directory_path,
-                self.update_status,
-                dry_run=dry_run
-            )
+            files_moved = self.organizer.organize_directory(directory_path, self.update_status, dry_run=dry_run)
 
-            # Final success message
             if dry_run:
-                if files_moved > 0:
-                    final_message = f"🔍 Preview complete! {files_moved} files would be moved."
-                else:
-                    final_message = "✨ No files to move, directory is already tidy."
+                final_message = f"Preview complete! {files_moved} files would be moved." if files_moved > 0 else "No files to move, directory is already tidy."
             else:
-                if files_moved > 0:
-                    final_message = f"✅ Organization complete! Moved {files_moved} files."
-                else:
-                    final_message = "✨ No files to move, directory is already tidy."
+                final_message = f"Organization complete! Moved {files_moved} files." if files_moved > 0 else "No files to move, directory is already tidy."
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.log_messages.append("")
             self.log_messages.append(f"=== Organization completed at {timestamp} ===")
             self.log_messages.append(f"Files {'would be moved' if dry_run else 'moved'}: {files_moved}")
 
-            # Save log file if enabled
             if not dry_run and self.organizer.create_log_file:
                 self._save_log_file(directory_path)
 
             self.after(0, lambda: messagebox.showinfo("Success", final_message))
-            # Enable undo button if files were actually moved
             self.after(0, lambda: self.undo_button.config(state='normal' if files_moved > 0 and not dry_run else 'disabled'))
             self.after(0, self.reset_ui)
 
@@ -626,7 +594,6 @@ def create_widgets(self):
             self.after(0, self.reset_ui)
 
     def _save_log_file(self, directory_path):
-        """Save log messages to a timestamped log file in the organized directory."""
         try:
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             log_filename = f"bobnox-log-{timestamp}.txt"
@@ -635,11 +602,11 @@ def create_widgets(self):
             with open(log_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(self.log_messages))
             self._log_to_ui(f"Log saved to: {log_filename}")
+            logger.info(f"Log saved to: {log_path}")
         except Exception as e:
-            print(f"Failed to save log file: {e}")
+            logger.error(f"Failed to save log file: {e}")
 
     def _set_ui_state(self, disabled: bool):
-        """Enable or disable UI controls."""
         state = 'disabled' if disabled else 'normal'
         self.organize_button.config(state=state)
         self.path_entry.config(state=state)
@@ -650,12 +617,10 @@ def create_widgets(self):
             self.undo_button.config(state='normal' if self.organizer._move_history else 'disabled')
 
     def reset_ui(self):
-        """Resets the UI elements to the initial state."""
         self._set_ui_state(disabled=False)
         self.path_var.set("")
         self.status_var.set("Ready. Select a folder to begin.")
         self.progress_bar['value'] = 0
-        # Keep log visible for review
 
 
 if __name__ == "__main__":
