@@ -633,24 +633,31 @@ class SettingsDialog(ctk.CTkToplevel):
         self.resizable(False, False)
         self.grab_set()
         self.extension_entries = {}
-        self._create_widgets()
+        self.scroll_frame = None
+        self._show_placeholder()
 
-    def _create_widgets(self):
-        ctk.CTkLabel(self, text="Extension Mappings", font=("Geist", 18, "bold")).pack(anchor="w", padx=24, pady=(20, 10))
-        scroll = ctk.CTkScrollableFrame(self, corner_radius=0)
-        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+    def _show_placeholder(self):
+        """Show window instantly, defer heavy rendering."""
+        ctk.CTkLabel(self, text="Settings", font=("Geist", 18, "bold")).pack(anchor="w", padx=24, pady=(20, 10))
+        self.scroll_frame = ctk.CTkScrollableFrame(self, corner_radius=0)
+        self.scroll_frame.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=16, pady=(0, 16))
+        ctk.CTkButton(btn_frame, text="Save", font=("Geist", 13, "bold"), fg_color="#005CE6", hover_color="#004BB3", height=36, corner_radius=8, command=self._save).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_frame, text="Cancel", font=("Geist", 13), height=36, corner_radius=8, command=self.destroy).pack(side="left")
+        # Defer widget creation to next UI cycle
+        self.after(30, self._render_mappings)
+
+    def _render_mappings(self):
+        """Build extension entry rows after window is visible."""
         for ext, folder in sorted(self.config.get("extension_map", {}).items()):
-            row = ctk.CTkFrame(scroll, corner_radius=8)
+            row = ctk.CTkFrame(self.scroll_frame, corner_radius=8)
             row.pack(fill="x", pady=3)
             ctk.CTkLabel(row, text=ext, font=("Geist", 13), width=80).pack(side="left", padx=(12, 8), pady=8)
             entry = ctk.CTkEntry(row, font=("Geist", 13), corner_radius=6, height=32)
             entry.insert(0, folder)
             entry.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=8)
             self.extension_entries[ext] = entry
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(fill="x", padx=16, pady=(0, 16))
-        ctk.CTkButton(btn_frame, text="Save", font=("Geist", 13, "bold"), fg_color="#005CE6", hover_color="#004BB3", height=36, corner_radius=8, command=self._save).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(btn_frame, text="Cancel", font=("Geist", 13), height=36, corner_radius=8, command=self.destroy).pack(side="left")
 
     def _save(self):
         for ext, entry in self.extension_entries.items():
@@ -671,7 +678,7 @@ class BoBnoxApp(ctk.CTk):
         self.organizer = FileOrganizer(self.app_config)
         self.log_messages = []
 
-        self.title("BoBnox v2.0.2")
+        self.title("BoBnox v2.0.3")
         self.geometry("1100x800")
         self.minsize(900, 650)
 
@@ -732,7 +739,7 @@ class BoBnoxApp(ctk.CTk):
         sidebar.grid_propagate(False)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(pady=(24, 4), padx=20, anchor="w")
-        ctk.CTkLabel(sidebar, text="v2.0.2", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
+        ctk.CTkLabel(sidebar, text="v2.0.3", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
 
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=16)
 
@@ -793,15 +800,15 @@ class BoBnoxApp(ctk.CTk):
         self.browse_btn = ctk.CTkButton(pf, text="Browse", font=self.F_BTN, fg_color=self.BLUE, hover_color="#004BB3", height=38, width=110, corner_radius=8, command=self._select_directory)
         self.browse_btn.pack(side="left")
 
-        # Row 2: Command Center (Buttons + Console merged)
+        # Row 2: Command Center (Buttons + Status + Console)
         cmd_center = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=16)
         cmd_center.grid(row=2, column=0, columnspan=2, padx=8, pady=8, sticky="nsew")
-        cmd_center.grid_rowconfigure(1, weight=1)
+        cmd_center.grid_rowconfigure(2, weight=1)
         cmd_center.grid_columnconfigure(0, weight=1)
 
         # Button row
         btn_row = ctk.CTkFrame(cmd_center, fg_color="transparent")
-        btn_row.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 8))
+        btn_row.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 12))
 
         self.organize_img = None
         if os.path.exists(SVG_PATH):
@@ -830,21 +837,21 @@ class BoBnoxApp(ctk.CTk):
         self.settings_btn = ctk.CTkButton(btn_row, text="⚙ Settings", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=8, command=self._open_settings)
         self.settings_btn.pack(side="left", fill="x", expand=True, padx=4)
 
-        # Status + Progress inside command block
-        status_frame = ctk.CTkFrame(cmd_center, fg_color="transparent")
-        status_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 4))
+        # Status header (anchored inside command block, same padx as console)
+        status_header = ctk.CTkFrame(cmd_center, fg_color="transparent")
+        status_header.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 6))
 
-        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=self.GREEN, font=self.F_SUB)
+        self.status_label = ctk.CTkLabel(status_header, text="System Ready", text_color=self.GREEN, font=self.F_SUB)
         self.status_label.pack(side="left")
 
-        self.progress_bar = ctk.CTkProgressBar(status_frame, height=4, fg_color=self.C_BORDER, progress_color=self.BLUE)
+        self.progress_bar = ctk.CTkProgressBar(status_header, height=6, fg_color=self.C_BORDER, progress_color=self.BLUE)
         self.progress_bar.pack(side="right", fill="x", expand=True, padx=(16, 0))
         self.progress_bar.set(0.0)
 
-        # Console inside command block
+        # Console (same padx as status header for alignment)
         self.console = ctk.CTkTextbox(cmd_center, fg_color=self.C_ENTRY, text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=8, border_color=self.C_BORDER, border_width=1)
-        self.console.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
-        self.console.insert("end", ">> boBnox v2.0.2 initialized.\n>> Awaiting target directory...\n")
+        self.console.grid(row=2, column=0, sticky="nsew", padx=20, pady=(0, 20))
+        self.console.insert("end", ">> boBnox v2.0.3 initialized.\n>> Awaiting target directory...\n")
         self.console.configure(state="disabled")
 
     # --- Theme ---
