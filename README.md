@@ -1,9 +1,11 @@
 # boBnox File Organizer
 
-A minimal, elegant file organizer with a dark theme UI that automatically sorts files into categorized folders.
+A modern file organizer with Bento Grid dark UI, built with customtkinter and Geist font.
 
 ## Features
 
+- **Bento Grid UI**: Modern dark theme with rounded cards and smooth animations
+- **Geist Font**: Clean typography throughout the interface
 - **Smart Organization**: Automatically categorizes files by extension into organized folders
 - **Dry Run Mode**: Preview changes before moving any files
 - **Undo Support**: Restore files to their original locations with one click
@@ -192,7 +194,7 @@ GitHub Actions automatically builds and publishes Docker images.
 
 ```
 bobnox/
-├── bobnox.py              # Main GUI application
+├── bobnox.py              # Main GUI application (customtkinter Bento UI)
 ├── organize_cli.py        # CLI tool
 ├── install.sh             # One-line installer
 ├── uninstall.sh           # Uninstaller
@@ -202,9 +204,11 @@ bobnox/
 ├── bobnox.desktop         # Desktop launcher
 ├── Dockerfile             # CLI Docker image
 ├── Dockerfile.vnc         # VNC GUI image
-├── requirements.txt       # Python dependencies
-├── .github/workflows/     # CI/CD
-└── assets/                # SVG icons
+├── requirements.txt       # Python dependencies (customtkinter, cairosvg, Pillow)
+├── Geist/                 # Geist font family
+├── BoBnox-icon/           # Application icons
+├── assets/                # SVG icons
+└── .github/workflows/     # CI/CD
 ```
 
 ## Troubleshooting
