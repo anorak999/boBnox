@@ -4,24 +4,16 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
 import io
+import json
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, asdict
+from enum import Enum
 
-# Optional SVG rendering support (cairosvg + Pillow). If unavailable we fall back to text button.
-HAS_SVG_SUPPORT = False
-try:
-    import cairosvg
-    from PIL import Image, ImageTk
-    HAS_SVG_SUPPORT = True
-except Exception:
-    # Missing optional packages; button will remain a text button
-    HAS_SVG_SUPPORT = False
-
-# --- 1. CORE LOGIC CLASS ---
-class FileOrganizer:
-    """
-    Handles the actual file organization logic, decoupled from the GUI.
-    """
-    EXTENSION_MAP = {
+# --- Configuration ---
+DEFAULT_CONFIG = {
+    "extension_map": {
         # Images
         '.jpg': 'Images', '.jpeg': 'Images', '.png': 'Images', '.gif': 'Images',
         '.bmp': 'Images', '.svg': 'Images', '.tiff': 'Images', '.webp': 'Images',
@@ -47,73 +39,180 @@ class FileOrganizer:
         '.java': 'Code', '.cpp': 'Code', '.c': 'Code', '.sh': 'Scripts',
         # Executables & Installers
         '.exe': 'Executables', '.msi': 'Installers', '.dmg': 'Installers',
-    }
+    },
+    "organize_subdirectories": False,
+    "create_log_file": True,
+}
 
-    def organize_directory(self, directory_path, status_callback):
+CONFIG_DIR = Path.home() / ".config" / "bobnox"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+
+def load_config() -> dict:
+    """Load configuration from file, creating default if needed."""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                user_config = json.load(f)
+            # Merge with defaults
+            config = DEFAULT_CONFIG.copy()
+            config.update(user_config)
+            return config
+        except Exception:
+            pass
+    return DEFAULT_CONFIG.copy()
+
+
+def save_config(config: dict) -> bool:
+    """Save configuration to file."""
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+# Optional SVG rendering support (cairosvg + Pillow). If unavailable we fall back to text button.
+HAS_SVG_SUPPORT = False
+try:
+    import cairosvg
+    from PIL import Image, ImageTk
+    HAS_SVG_SUPPORT = True
+except Exception:
+    # Missing optional packages; button will remain a text button
+    HAS_SVG_SUPPORT = False
+
+# --- 1. CORE LOGIC CLASS ---
+class FileOrganizer:
+    """
+    Handles the actual file organization logic, decoupled from the GUI.
+    """
+    
+    def __init__(self, config: Optional[dict] = None):
+        self.config = config or load_config()
+        self.extension_map = self.config.get("extension_map", DEFAULT_CONFIG["extension_map"])
+        self.organize_subdirectories = self.config.get("organize_subdirectories", False)
+        self.create_log_file = self.config.get("create_log_file", True)
+        self._move_history: List[Tuple[Path, Path]] = []  # For undo functionality
+
+    def organize_directory(self, directory_path: str, status_callback, dry_run: bool = False) -> int:
         """
         Organizes files in the given directory into subfolders.
         Uses a callback function to report progress back to the GUI.
+        
+        Args:
+            directory_path: Path to directory to organize
+            status_callback: Callback function(message, progress_percent)
+            dry_run: If True, only simulate without moving files
+            
+        Returns:
+            Number of files moved (or would be moved in dry run)
         """
         if not os.path.isdir(directory_path):
             raise FileNotFoundError("The selected path is not a valid directory.")
 
-        # Filter out directories and the script file itself, only keeping files to move
-        files_to_move = [
-            f for f in os.listdir(directory_path)
-            if os.path.isfile(os.path.join(directory_path, f)) and f != os.path.basename(__file__)
-        ]
+        directory = Path(directory_path)
+        
+        # Filter out directories and the script file itself
+        if self.organize_subdirectories:
+            files_to_move = [
+                f for f in directory.rglob('*')
+                if f.is_file() and f.name != os.path.basename(__file__)
+            ]
+        else:
+            files_to_move = [
+                f for f in directory.iterdir()
+                if f.is_file() and f.name != os.path.basename(__file__)
+            ]
         
         total_files = len(files_to_move)
         files_moved = 0
         
         if total_files == 0:
-            return 0 # No files to move
+            status_callback("No files to organize.", 1.0)
+            return 0
 
-        for i, item_name in enumerate(files_to_move):
-            source_path = os.path.join(directory_path, item_name)
+        self._move_history.clear()
 
+        for i, file_path in enumerate(files_to_move):
+            relative_path = file_path.relative_to(directory)
+            
             # 1. Determine destination folder name
-            _, file_extension = os.path.splitext(item_name)
-            file_extension = file_extension.lower()
-
-            if file_extension in self.EXTENSION_MAP:
-                folder_name = self.EXTENSION_MAP[file_extension]
+            file_extension = file_path.suffix.lower()
+            
+            if file_extension in self.extension_map:
+                folder_name = self.extension_map[file_extension]
             else:
                 # Group unknown files
                 folder_name = f"{file_extension[1:].upper()} Files" if file_extension else "Other Files"
 
-            dest_folder_path = os.path.join(directory_path, folder_name)
+            dest_folder_path = directory / folder_name
 
-            # 2. Create folder if needed
-            if not os.path.exists(dest_folder_path):
-                os.makedirs(dest_folder_path)
+            # 2. Create folder if needed (not in dry run)
+            if not dry_run and not dest_folder_path.exists():
+                dest_folder_path.mkdir(parents=True, exist_ok=True)
 
             # 3. Handle Duplicate File Names (Robust Naming)
-            original_name = item_name
+            original_name = file_path.name
             base_name, ext = os.path.splitext(original_name)
             counter = 1
-            destination_path = os.path.join(dest_folder_path, item_name)
+            destination_path = dest_folder_path / original_name
             
-            while os.path.exists(destination_path):
+            while destination_path.exists():
                 # Rename the file if it conflicts (e.g., 'file (1).ext')
-                item_name = f"{base_name} ({counter}){ext}"
-                destination_path = os.path.join(dest_folder_path, item_name)
+                new_name = f"{base_name} ({counter}){ext}"
+                destination_path = dest_folder_path / new_name
                 counter += 1
 
-            # 4. Move the file
-            try:
-                shutil.move(source_path, destination_path)
+            # 4. Move the file (or simulate in dry run)
+            if not dry_run:
+                try:
+                    shutil.move(str(file_path), str(destination_path))
+                    self._move_history.append((destination_path, file_path))
+                    files_moved += 1
+                except Exception as e:
+                    status_callback(f"Failed to move {original_name}: {e}", (i + 1) / total_files)
+                    continue
+            else:
                 files_moved += 1
-            except Exception as e:
-                # Report failure to move this specific file but continue
-                print(f"Failed to move {item_name}: {e}")
 
             # 5. Report progress back to the GUI
             progress_percent = (i + 1) / total_files
-            status_message = f"Moving ({i + 1}/{total_files}): {original_name} -> {folder_name}"
+            action = "Would move" if dry_run else "Moving"
+            status_message = f"{action} ({i + 1}/{total_files}): {relative_path} -> {folder_name}"
             status_callback(status_message, progress_percent)
 
         return files_moved
+
+    def undo_last_organization(self, status_callback) -> int:
+        """
+        Undo the last organization by moving files back to their original locations.
+        
+        Returns:
+            Number of files restored
+        """
+        if not self._move_history:
+            status_callback("Nothing to undo.", 1.0)
+            return 0
+
+        total = len(self._move_history)
+        restored = 0
+
+        for i, (current_path, original_path) in enumerate(self._move_history):
+            if current_path.exists():
+                # Ensure original directory exists
+                original_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.move(str(current_path), str(original_path))
+                    restored += 1
+                except Exception as e:
+                    status_callback(f"Failed to restore {current_path.name}: {e}", (i + 1) / total)
+            progress = (i + 1) / total
+            status_callback(f"Restoring ({i + 1}/{total}): {current_path.name}", progress)
+
+        self._move_history.clear()
+        return restored
 
 
 # --- 2. GUI APPLICATION CLASS ---
@@ -123,13 +222,16 @@ class FileOrganizerApp(tk.Tk):
     """
     def __init__(self):
         super().__init__()
-        self.organizer = FileOrganizer()
-        self.title("boBnox(V3.0)")
+        self.config = load_config()
+        self.organizer = FileOrganizer(self.config)
+        self.title("boBnox(V3.1)")
         # Smaller, minimal window size
-        self.geometry("480x360")
+        self.geometry("520x480")
         self.configure(bg="#1E1E1E")
         self.path_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready. Select a folder to begin.")
+        self.dry_run_var = tk.BooleanVar(value=False)
+        self.recursive_var = tk.BooleanVar(value=self.config.get("organize_subdirectories", False))
         self.log_messages = []  # Store log messages for this run
 
         self.setup_styles()
@@ -175,7 +277,7 @@ class FileOrganizerApp(tk.Tk):
                         borderwidth=0)
 
 
-    def create_widgets(self):
+def create_widgets(self):
         """Creates and positions all UI elements using grid for precise control."""
         # Main Frame
         main_frame = ttk.Frame(self, padding="20")
@@ -193,6 +295,30 @@ class FileOrganizerApp(tk.Tk):
         browse_button = ttk.Button(path_frame, text="Browse...", command=self.select_directory)
         browse_button.grid(row=0, column=1, padx=(10, 0))
 
+        # Options Frame
+        options_frame = ttk.Frame(main_frame)
+        options_frame.grid(row=1, column=0, sticky="ew", pady=(0, 15))
+        options_frame.grid_columnconfigure(0, weight=1)
+
+        # Dry run checkbox
+        self.dry_run_check = ttk.Checkbutton(
+            options_frame,
+            text="Dry Run (Preview only)",
+            variable=self.dry_run_var,
+            style="TCheckbutton"
+        )
+        self.dry_run_check.grid(row=0, column=0, sticky="w", padx=(0, 20))
+
+        # Recursive checkbox
+        self.recursive_check = ttk.Checkbutton(
+            options_frame,
+            text="Include Subdirectories",
+            variable=self.recursive_var,
+            style="TCheckbutton",
+            command=self._on_recursive_toggle
+        )
+        self.recursive_check.grid(row=0, column=1, sticky="w")
+
         # Organize Button - SVG icon only
         assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
         svg_path = os.path.join(assets_dir, 'Sort--Streamline-Solar.svg')
@@ -204,14 +330,14 @@ class FileOrganizerApp(tk.Tk):
                 img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
                 self.organize_img = ImageTk.PhotoImage(img)
                 self.organize_button = tk.Button(
-                    main_frame, 
-                    image=self.organize_img, 
+                    main_frame,
+                    image=self.organize_img,
                     command=self.start_organizing_thread,
-                    bd=0, 
-                    highlightthickness=0, 
-                    relief='flat', 
-                    cursor='hand2', 
-                    bg=self.BG_DARK, 
+                    bd=0,
+                    highlightthickness=0,
+                    relief='flat',
+                    cursor='hand2',
+                    bg=self.BG_DARK,
                     activebackground=self.BG_DARK
                 )
             except Exception as e:
@@ -248,18 +374,78 @@ class FileOrganizerApp(tk.Tk):
                 activebackground=self.BG_DARK
             )
 
-        self.organize_button.grid(row=1, column=0, pady=(10, 20))
+        self.organize_button.grid(row=2, column=0, pady=(10, 10))
+
+        # Secondary buttons frame
+        secondary_frame = ttk.Frame(main_frame)
+        secondary_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        secondary_frame.grid_columnconfigure((0, 1, 2), weight=1)
+
+        # Undo Button
+        self.undo_button = ttk.Button(
+            secondary_frame,
+            text="↩ Undo",
+            command=self.undo_last_action,
+            state='disabled'
+        )
+        self.undo_button.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+
+        # Settings Button
+        self.settings_button = ttk.Button(
+            secondary_frame,
+            text="⚙ Settings",
+            command=self.open_settings
+        )
+        self.settings_button.grid(row=0, column=1, sticky="ew", padx=5)
+
+        # Clear Log Button
+        self.clear_log_button = ttk.Button(
+            secondary_frame,
+            text="🗑 Clear Log",
+            command=self.clear_log
+        )
+        self.clear_log_button.grid(row=0, column=2, sticky="ew", padx=(5, 0))
 
         # Progress Bar
         self.progress_bar = ttk.Progressbar(main_frame, orient="horizontal", mode="determinate")
-        self.progress_bar.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        self.progress_bar.grid(row=4, column=0, sticky="ew", pady=(0, 10))
 
         # Status Label
         self.status_label = ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel")
-        self.status_label.grid(row=3, column=0, sticky="w")
+        self.status_label.grid(row=5, column=0, sticky="w")
+
+        # Log Display (expandable)
+        log_frame = ttk.Frame(main_frame)
+        log_frame.grid(row=6, column=0, sticky="nsew", pady=(10, 0))
+        log_frame.grid_columnconfigure(0, weight=1)
+        log_frame.grid_rowconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(6, weight=1)
+
+        self.log_text = tk.Text(
+            log_frame,
+            height=8,
+            bg=self.BG_MID,
+            fg=self.FG_LIGHT,
+            font=("Consolas", 9),
+            relief='flat',
+            bd=0,
+            wrap='word',
+            state='disabled'
+        )
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+
+        # Scrollbar for log
+        log_scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
+        log_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.log_text.configure(yscrollcommand=log_scrollbar.set)
+
+        # Configure checkbutton style
+        style = ttk.Style(self)
+        style.configure("TCheckbutton", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 10))
+        style.map("TCheckbutton", background=[('active', self.BG_DARK)])
 
 
-    # --- UI EVENT HANDLERS ---
+# --- UI EVENT HANDLERS ---
 
     def select_directory(self):
         """Open a dialog to select a directory."""
@@ -267,8 +453,44 @@ class FileOrganizerApp(tk.Tk):
         if path:
             self.path_var.set(path)
 
+    def _on_recursive_toggle(self):
+        """Handle recursive checkbox toggle."""
+        self.config["organize_subdirectories"] = self.recursive_var.get()
+        self.organizer.organize_subdirectories = self.recursive_var.get()
+        save_config(self.config)
+
+    def _log_to_ui(self, message: str):
+        """Add message to the log text widget."""
+        self.log_text.config(state='normal')
+        self.log_text.insert(tk.END, message + "\n")
+        self.log_text.see(tk.END)
+        self.log_text.config(state='disabled')
+
+    def clear_log(self):
+        """Clear the log display."""
+        self.log_text.config(state='normal')
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state='disabled')
+        self.log_messages.clear()
+
+    def open_settings(self):
+        """Open settings dialog."""
+        SettingsDialog(self, self.config, self.on_settings_save)
+
+    def on_settings_save(self, new_config: dict):
+        dict):
+        """Callback when settings are saved."""
+        self.config = new_config
+        self.organizer.config = new_config
+        self.organizer.extension_map = new_config.get("extension_map", DEFAULT_CONFIG["extension_map"])
+        self.organizer.organize_subdirectories = new_config.get("organize_subdirectories", False)
+        self.organizer.create_log_file = new_config.get("create_log_file", True)
+        self.recursive_var.set(self.organizer.organize_subdirectories)
+        save_config(new_config)
+        messagebox.showinfo("Settings", "Settings saved successfully!")
+
     # --- THREADING AND ASYNCHRONOUS EXECUTION ---
-    
+
     def start_organizing_thread(self):
         """Starts the file organization in a separate thread to keep the GUI responsive."""
         directory_path = self.path_var.get()
@@ -277,27 +499,60 @@ class FileOrganizerApp(tk.Tk):
             return
 
         # Disable input while processing
-        if hasattr(self.organize_button, 'state'):
-            try:
-                self.organize_button.state(['disabled'])
-            except Exception:
-                self.organize_button.config(state='disabled')
-        else:
-            self.organize_button.config(state='disabled')
-        self.path_entry.state(['disabled'])
+        self._set_ui_state(disabled=True)
         self.status_var.set("Processing... Please wait.")
         self.progress_bar['value'] = 0
+        self.clear_log()
 
         # Initialize log for this run
         self.log_messages = []
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log_messages.append(f"=== Organization started at {timestamp} ===")
         self.log_messages.append(f"Directory: {directory_path}")
+        self.log_messages.append(f"Mode: {'Dry Run' if self.dry_run_var.get() else 'Live'}")
+        self.log_messages.append(f"Recursive: {self.recursive_var.get()}")
         self.log_messages.append("")
 
         # Start the organization task in a new thread
-        self.thread = threading.Thread(target=self.organize_action, args=(directory_path,), daemon=True)
+        self.thread = threading.Thread(
+            target=self.organize_action,
+            args=(directory_path, self.dry_run_var.get()),
+            daemon=True
+        )
         self.thread.start()
+
+    def undo_last_action(self):
+        """Undo the last organization."""
+        if not self.organizer._move_history:
+            messagebox.showinfo("Undo", "Nothing to undo.")
+            return
+
+        if not messagebox.askyesno("Confirm Undo", "Restore all moved files to their original locations?"):
+            return
+
+        self._set_ui_state(disabled=True)
+        self.status_var.set("Undoing... Please wait.")
+        self.progress_bar['value'] = 0
+
+        self.thread = threading.Thread(target=self.undo_action, daemon=True)
+        self.thread.start()
+
+    def undo_action(self):
+        """Execute undo in background thread."""
+        try:
+            restored = self.organizer.undo_last_organization(self.update_status)
+
+            if restored > 0:
+                final_message = f"✅ Undo complete! Restored {restored} files."
+            else:
+                final_message = "✨ Nothing to restore."
+
+            self.after(0, lambda: messagebox.showinfo("Undo Complete", final_message))
+            self.after(0, self.reset_ui)
+
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Error", f"Undo failed: {e}"))
+            self.after(0, self.reset_ui)
 
     def update_status(self, message, progress_value):
         """Thread-safe status updater: schedule UI updates on the main thread."""
@@ -316,41 +571,57 @@ class FileOrganizerApp(tk.Tk):
             pass
         # Log the message
         self.log_messages.append(message)
-        self.update_idletasks() # Force GUI redraw
+        self._log_to_ui(message)
+        self.update_idletasks()  # Force GUI redraw
 
-    def organize_action(self, directory_path):
+    def organize_action(self, directory_path, dry_run: bool):
         """The function executed in the worker thread."""
         try:
+            # Update organizer with current settings
+            self.organizer.organize_subdirectories = self.recursive_var.get()
+
             files_moved = self.organizer.organize_directory(
                 directory_path,
-                self.update_status
+                self.update_status,
+                dry_run=dry_run
             )
 
             # Final success message
-            if files_moved > 0:
-                final_message = f"✅ Organization complete! Moved {files_moved} files."
+            if dry_run:
+                if files_moved > 0:
+                    final_message = f"🔍 Preview complete! {files_moved} files would be moved."
+                else:
+                    final_message = "✨ No files to move, directory is already tidy."
             else:
-                final_message = "✨ No files to move, directory is already tidy."
+                if files_moved > 0:
+                    final_message = f"✅ Organization complete! Moved {files_moved} files."
+                else:
+                    final_message = "✨ No files to move, directory is already tidy."
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.log_messages.append("")
             self.log_messages.append(f"=== Organization completed at {timestamp} ===")
-            self.log_messages.append(f"Files moved: {files_moved}")
+            self.log_messages.append(f"Files {'would be moved' if dry_run else 'moved'}: {files_moved}")
 
-            # Save log file
-            self._save_log_file(directory_path)
+            # Save log file if enabled
+            if not dry_run and self.organizer.create_log_file:
+                self._save_log_file(directory_path)
 
             self.after(0, lambda: messagebox.showinfo("Success", final_message))
+            # Enable undo button if files were actually moved
+            self.after(0, lambda: self.undo_button.config(state='normal' if files_moved > 0 and not dry_run else 'disabled'))
             self.after(0, self.reset_ui)
-            
+
         except FileNotFoundError as e:
-             self.log_messages.append(f"ERROR: {str(e)}")
-             self._save_log_file(directory_path)
-             self.after(0, lambda: messagebox.showerror("Error", str(e)))
-             self.after(0, self.reset_ui)
+            self.log_messages.append(f"ERROR: {str(e)}")
+            if self.organizer.create_log_file:
+                self._save_log_file(directory_path)
+            self.after(0, lambda: messagebox.showerror("Error", str(e)))
+            self.after(0, self.reset_ui)
         except Exception as e:
             self.log_messages.append(f"ERROR: {str(e)}")
-            self._save_log_file(directory_path)
+            if self.organizer.create_log_file:
+                self._save_log_file(directory_path)
             self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred: {e}"))
             self.after(0, self.reset_ui)
 
@@ -360,25 +631,31 @@ class FileOrganizerApp(tk.Tk):
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             log_filename = f"bobnox-log-{timestamp}.txt"
             log_path = os.path.join(directory_path, log_filename)
-            
+
             with open(log_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(self.log_messages))
+            self._log_to_ui(f"Log saved to: {log_filename}")
         except Exception as e:
             print(f"Failed to save log file: {e}")
 
+    def _set_ui_state(self, disabled: bool):
+        """Enable or disable UI controls."""
+        state = 'disabled' if disabled else 'normal'
+        self.organize_button.config(state=state)
+        self.path_entry.config(state=state)
+        self.dry_run_check.config(state=state)
+        self.recursive_check.config(state=state)
+        self.settings_button.config(state=state)
+        if not disabled:
+            self.undo_button.config(state='normal' if self.organizer._move_history else 'disabled')
+
     def reset_ui(self):
         """Resets the UI elements to the initial state."""
-        if hasattr(self.organize_button, 'state'):
-            try:
-                self.organize_button.state(['!disabled'])
-            except Exception:
-                self.organize_button.config(state='normal')
-        else:
-            self.organize_button.config(state='normal')
-        self.path_entry.state(['!disabled'])
+        self._set_ui_state(disabled=False)
         self.path_var.set("")
         self.status_var.set("Ready. Select a folder to begin.")
         self.progress_bar['value'] = 0
+        # Keep log visible for review
 
 
 if __name__ == "__main__":
