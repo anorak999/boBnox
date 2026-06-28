@@ -1027,7 +1027,7 @@ class BoBnoxApp(ctk.CTk):
         # SIDEBAR SYSTEM
         # ======================================================================
         sidebar = ctk.CTkFrame(self, corner_radius=APP_RADIUS, fg_color=self.C_CARD, bg_color=self.C_BG)
-        sidebar.grid(row=0, column=0, rowspan=1, sticky="nsew", padx=12, pady=12)
+        sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew", padx=12, pady=12)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(anchor="w", padx=20, pady=(24, 4))
         ctk.CTkLabel(sidebar, text="v2.3.0 - Advanced Engine", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
@@ -1061,7 +1061,7 @@ class BoBnoxApp(ctk.CTk):
         # MAIN CONTENT GRID (2 columns)
         # ======================================================================
         content = ctk.CTkFrame(self, fg_color="transparent", bg_color=self.C_BG)
-        content.grid(row=0, column=1, columnspan=2, padx=4, pady=12, sticky="nsew")
+        content.grid(row=0, column=1, columnspan=2, rowspan=4, padx=4, pady=12, sticky="nsew")
         content.grid_columnconfigure(0, weight=1, minsize=420)
         content.grid_columnconfigure(1, weight=1, minsize=420)
         content.grid_rowconfigure(0, weight=1, minsize=140)
