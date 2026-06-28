@@ -525,7 +525,12 @@ class ShannonEntropyAnalyzer:
 
     def classify(self, file_path: str) -> dict:
         e = self.calculate_entropy(file_path)
-        if e < 4.5:
+        _, ext = os.path.splitext(file_path.lower())
+        # Archive/compressed files naturally have high entropy - don't quarantine them
+        archive_exts = {'.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz', '.zst', '.torrent'}
+        if ext in archive_exts:
+            tier, action = "COMPRESSED", "STANDARD_SORT"
+        elif e < 4.5:
             tier, action = "STRUCTURED", "STANDARD_SORT"
         elif e <= 6.8:
             tier, action = "COMPILED_BINARY", "VERIFY_METADATA"
@@ -733,7 +738,8 @@ DEFAULT_CONFIG = {
         '.ppt': 'Presentations', '.pptx': 'Presentations',
         '.mp3': 'Audio', '.wav': 'Audio', '.aac': 'Audio', '.flac': 'Audio', '.ogg': 'Audio', '.m4a': 'Audio',
         '.mp4': 'Videos', '.mov': 'Videos', '.avi': 'Videos', '.mkv': 'Videos', '.wmv': 'Videos', '.flv': 'Videos',
-        '.zip': 'Archives', '.rar': 'Archives', '.7z': 'Archives', '.tar': 'Archives', '.gz': 'Archives',
+        '.zip': 'Archives', '.rar': 'Archives', '.7z': 'Archives', '.tar': 'Archives',
+        '.gz': 'Archives', '.torrent': 'Archives',
         '.py': 'Scripts', '.js': 'Scripts', '.html': 'Web Files', '.css': 'Web Files',
         '.java': 'Code', '.cpp': 'Code', '.c': 'Code', '.sh': 'Scripts',
         '.exe': 'Executables', '.msi': 'Installers', '.dmg': 'Installers',
