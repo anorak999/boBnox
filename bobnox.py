@@ -330,12 +330,7 @@ class BoBnoxApp(ctk.CTk):
         self.C_BTN = ("#E5E5EA", "#2C2C2E")
         self.C_BTN_HOVER = ("#D1D1D6", "#3A3A3C")
 
-        # Animation RGB targets
-        self.THEME_DARK = {"bg": (13, 13, 13), "card": (26, 26, 26), "entry": (13, 13, 13), "text": "#FFFFFF", "muted": "#8E8E93", "border": "#2C2C2E", "btn": "#2C2C2E", "console": "#0D0D0D"}
-        self.THEME_LIGHT = {"bg": (242, 242, 247), "card": (255, 255, 255), "entry": (229, 229, 234), "text": "#000000", "muted": "#636366", "border": "#D1D1D6", "btn": "#E5E5EA", "console": "#F2F2F7"}
-
         # Animation state
-        self._animating = False
         self._card_refs = []
 
         # Static accents
@@ -481,50 +476,17 @@ class BoBnoxApp(ctk.CTk):
         self.console.insert("end", "[INFO] Application initialized.\n[INFO] Awaiting target directory selection...\n")
         self.console.configure(state="disabled")
 
-    # --- Animated Theme Toggle ---
-    def _hex_from_rgb(self, rgb):
-        return f"#{int(rgb[0]):02x}{int(rgb[1]):02x}{int(rgb[2]):02x}"
-
-    def _lerp_color(self, start, end, t):
-        return tuple(int(start[i] + (end[i] - start[i]) * t) for i in range(3))
-
+    # --- Theme Toggle ---
     def _toggle_theme(self):
-        if self._animating:
-            return
-        self._animating = True
-        is_light = self.theme_switch.get() == 1
-        self.theme_switch.configure(text="Light Mode" if is_light else "Dark Mode")
-
-        src = self.THEME_LIGHT if is_light else self.THEME_DARK
-        dst = self.THEME_DARK if is_light else self.THEME_LIGHT
-        steps = 10
-
-        def frame(step):
-            t = step / steps
-            bg = self._hex_from_rgb(self._lerp_color(src["bg"], dst["bg"], t))
-            card = self._hex_from_rgb(self._lerp_color(src["card"], dst["card"], t))
-            entry = self._hex_from_rgb(self._lerp_color(src["entry"], dst["entry"], t))
-
-            self.configure(fg_color=bg)
-            for c in self._card_refs:
-                try:
-                    c.configure(fg_color=card)
-                except Exception:
-                    pass
-            try:
-                self.path_entry.configure(fg_color=entry)
-            except Exception:
-                pass
-
-            if step < steps:
-                self.after(16, lambda: frame(step + 1))
-            else:
-                ctk.set_appearance_mode("Dark" if not is_light else "Light")
-                self.app_config["dark_mode"] = not is_light
-                save_config(self.app_config)
-                self._animating = False
-
-        frame(1)
+        if self.theme_switch.get() == 1:
+            ctk.set_appearance_mode("Dark")
+            self.theme_switch.configure(text="Dark Mode")
+            self.app_config["dark_mode"] = True
+        else:
+            ctk.set_appearance_mode("Light")
+            self.theme_switch.configure(text="Light Mode")
+            self.app_config["dark_mode"] = False
+        save_config(self.app_config)
 
     # --- Actions ---
     def _log(self, msg: str):
