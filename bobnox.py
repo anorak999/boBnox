@@ -228,13 +228,17 @@ class DeduplicationEngine:
 
     def scan_directory(self, target_dir: str) -> list:
         duplicates = []
+        seen_hashes = {}
         for fp in Path(target_dir).rglob('*'):
-            if fp.is_file():
-                file_hash = self.compute_sha256(str(fp))
-                if file_hash in self.hash_registry:
-                    duplicates.append({"path": str(fp), "original": self.hash_registry[file_hash], "hash": file_hash})
-                else:
-                    self.hash_registry[file_hash] = str(fp)
+            if fp.is_file() and not fp.is_symlink():
+                try:
+                    file_hash = self.compute_sha256(str(fp))
+                    if file_hash in seen_hashes:
+                        duplicates.append({"path": str(fp), "original": seen_hashes[file_hash], "hash": file_hash})
+                    else:
+                        seen_hashes[file_hash] = str(fp)
+                except (IOError, OSError):
+                    pass
         return duplicates
 
     def reset(self):
@@ -495,10 +499,13 @@ class ShannonEntropyAnalyzer:
         if not os.path.exists(file_path) or os.path.islink(file_path):
             return 0.0
         size = os.path.getsize(file_path)
-        if size == 0:
+        if size == 0 or size > 100_000_000:  # Skip files > 100MB
             return 0.0
-        with open(file_path, "rb") as f:
-            data = f.read()
+        try:
+            with open(file_path, "rb") as f:
+                data = f.read(min(size, 10_000_000))  # Cap at 10MB
+        except (IOError, OSError):
+            return 0.0
         counts = collections.Counter(data)
         entropy = 0.0
         for count in counts.values():
@@ -562,6 +569,9 @@ class KernelInotifyDaemon:
         self._fd = -1
         self._wd = -1
         self._thread = None
+        if not IS_LINUX:
+            logger.warning("KernelInotifyDaemon is Linux-only")
+            return
         try:
             import ctypes
             self._libc = ctypes.CDLL(None)
@@ -651,6 +661,9 @@ class BobnoxCLI:
 
         config = load_config()
         if hasattr(args, 'config') and args.config:
+            if not os.path.exists(args.config):
+                print(f"Error: Config file not found: {args.config}")
+                sys.exit(1)
             with open(args.config) as f:
                 config.update(json.load(f))
 
@@ -1364,16 +1377,17 @@ class BoBnoxApp(ctk.CTk):
         actions_card.grid_columnconfigure((0, 1), weight=1)
         actions_card.grid_rowconfigure((0, 1), weight=1)
 
-        def _action_btn(parent, text, row, col, primary=False, command=None):
-            fg = ACCENT_GREEN if primary else self.C_BTN
-            hv = "#2DB84D" if primary else self.C_BTN_HOVER
-            tc = "#FFFFFF" if primary else self.C_TEXT
-            ctk.CTkButton(parent, text=text, font=(gf, 11, "bold"), fg_color=fg, hover_color=hv, text_color=tc, corner_radius=BTN_RADIUS, height=48, command=command).grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
+        self.organize_btn = ctk.CTkButton(actions_card, text="▶  Organize", font=(gf, 11, "bold"), fg_color=ACCENT_GREEN, hover_color="#2DB84D", text_color="#FFFFFF", corner_radius=BTN_RADIUS, height=48, command=self._start_organizing)
+        self.organize_btn.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
 
-        _action_btn(actions_card, "▶  Organize", 0, 0, primary=True, command=self._start_organizing)
-        _action_btn(actions_card, "⟲  Undo", 0, 1, command=self._undo_action)
-        _action_btn(actions_card, "📁  Open Folder", 1, 0, command=self._open_folder)
-        _action_btn(actions_card, "⊞  History", 1, 1, command=self._open_ledger_history)
+        self.undo_btn = ctk.CTkButton(actions_card, text="⟲  Undo", font=(gf, 11, "bold"), fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, corner_radius=BTN_RADIUS, height=48, command=self._undo_action, state="disabled")
+        self.undo_btn.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
+
+        self.open_folder_btn = ctk.CTkButton(actions_card, text="📁  Open Folder", font=(gf, 11, "bold"), fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, corner_radius=BTN_RADIUS, height=48, command=self._open_folder)
+        self.open_folder_btn.grid(row=1, column=0, padx=6, pady=6, sticky="nsew")
+
+        self.settings_btn = ctk.CTkButton(actions_card, text="⚙  Settings", font=(gf, 11, "bold"), fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, corner_radius=BTN_RADIUS, height=48, command=self._open_settings)
+        self.settings_btn.grid(row=1, column=1, padx=6, pady=6, sticky="nsew")
         self._build_undo_row(actions_card, gf)
 
         monitor = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
@@ -1475,8 +1489,6 @@ class BoBnoxApp(ctk.CTk):
         state = "disabled" if disabled else "normal"
         for btn in [self.organize_btn, self.undo_btn, self.open_folder_btn, self.settings_btn, self.browse_btn]:
             btn.configure(state=state)
-        self.sw_dry.configure(state=state)
-        self.sw_rec.configure(state=state)
         self.path_entry.configure(state=state)
 
     def _start_organizing(self):
