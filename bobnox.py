@@ -52,29 +52,30 @@ if IS_LINUX:
 APP_RADIUS = 16
 CARD_RADIUS = 12
 BTN_RADIUS = 8
-INPUT_RADIUS = 8
+INPUT_RADIUS = 6
 
-BG_DARK = "#0D0D0D"
-CARD_DARK = "#1A1A1A"
-BG_LIGHT = "#F2F2F7"
+BG_DARK = "#161618"
+BG_LIGHT = "#F5F5F7"
+CARD_DARK = "#242426"
 CARD_LIGHT = "#FFFFFF"
 
-TEXT_DARK = "#FFFFFF"
-TEXT_LIGHT = "#000000"
-MUTED_DARK = "#8E8E93"
-MUTED_LIGHT = "#636366"
+TEXT_DARK = "#F5F5F7"
+TEXT_LIGHT = "#1D1D1F"
+MUTED_DARK = "#98989D"
+MUTED_LIGHT = "#6E6E73"
 BORDER_DARK = "#2C2C2E"
-BORDER_LIGHT = "#D1D1D6"
-ENTRY_DARK = "#0D0D0D"
-ENTRY_LIGHT = "#E5E5EA"
+BORDER_LIGHT = "#E5E5EA"
+ENTRY_DARK = "#2C2C2E"
+ENTRY_LIGHT = "#F2F2F7"
 BTN_DARK = "#2C2C2E"
-BTN_LIGHT = "#E5E5EA"
+BTN_LIGHT = "#F2F2F7"
 BTN_HOVER_DARK = "#3A3A3C"
-BTN_HOVER_LIGHT = "#D1D1D6"
+BTN_HOVER_LIGHT = "#E5E5EA"
 
-ACCENT_BLUE = "#005CE6"
-ACCENT_GREEN = "#22C85A"
-ACCENT_CORAL = "#FF4F31"
+ACCENT_BLUE = "#007AFF"
+ACCENT_GREEN = "#34C759"
+ACCENT_CORAL = "#FF3B30"
+ACCENT_ORANGE = "#FF9500"
 
 # --- Logging ---
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
@@ -965,9 +966,9 @@ class BoBnoxApp(ctk.CTk):
         self.log_messages = []
         self.running = False
 
-        self.title("BoBnox v3.0.0")
-        self.geometry("1200x750")
-        self.minsize(1000, 650)
+        self.title("BoBnox v4.0.0")
+        self.geometry("1200x820")
+        self.minsize(960, 680)
 
         if not geist_available():
             install_geist_fonts()
@@ -1039,7 +1040,7 @@ class BoBnoxApp(ctk.CTk):
         sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew", padx=12, pady=12)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(anchor="w", padx=20, pady=(24, 4))
-        ctk.CTkLabel(sidebar, text="v3.0.0 - Stable Engine", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
+        ctk.CTkLabel(sidebar, text="v4.0.0 - macOS Engine", font=(gf, 11), text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
 
         self.theme_switch = ctk.CTkSwitch(sidebar, text="Dark Mode", command=self._toggle_theme, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
@@ -1071,96 +1072,108 @@ class BoBnoxApp(ctk.CTk):
         content.grid_rowconfigure(2, weight=2, minsize=240)
         content.grid_rowconfigure(3, weight=2, minsize=220)
 
-        # ROW 0: Branding + Options
-        brand = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
+        # ROW 0: Branding + Options (inline layout)
+        brand = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
         brand.grid(row=0, column=0, padx=6, pady=6, sticky="nsew")
-        ctk.CTkLabel(brand, text="boBnox", text_color=self.C_TEXT, font=self.F_TITLE).pack(fill="x", padx=20, pady=(16, 4))
-        ctk.CTkLabel(brand, text="File Organization Engine", text_color=self.C_MUTED, font=self.F_LABEL).pack(fill="x", padx=20, pady=(0, 4))
-        ctk.CTkLabel(brand, text=f"SQLite Ledger | Pending: {self.organizer.ledger.get_pending_count()}", text_color=ACCENT_GREEN, font=(gf, 10)).pack(fill="x", padx=20, pady=(0, 12))
+        ctk.CTkLabel(brand, text="boBnox", text_color=self.C_TEXT, font=(gf, 20, "bold")).pack(anchor="w", padx=16, pady=(14, 0))
+        ctk.CTkLabel(brand, text="File Organization Engine", text_color=self.C_MUTED, font=(gf, 11)).pack(anchor="w", padx=16, pady=(2, 4))
+        pending = self.organizer.ledger.get_pending_count()
+        ctk.CTkLabel(brand, text=f"● SQLite Ledger  ·  Pending: {pending}", font=(gf, 10), text_color=ACCENT_GREEN).pack(anchor="w", padx=16, pady=(0, 10))
 
-        opts = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
-        opts.grid(row=0, column=1, padx=6, pady=6, sticky="nsew")
+        # Path row inside brand card
+        path_row = ctk.CTkFrame(brand, fg_color="transparent")
+        path_row.pack(fill="x", padx=16, pady=(0, 14))
+        path_row.columnconfigure(0, weight=1)
+        self.path_entry = ctk.CTkEntry(path_row, textvariable=self.path_var, font=(gf, 11), fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, corner_radius=INPUT_RADIUS, height=30)
+        self.path_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.browse_btn = ctk.CTkButton(path_row, text="Browse", font=(gf, 11, "bold"), fg_color=ACCENT_BLUE, hover_color="#005FCC", height=30, corner_radius=BTN_RADIUS, command=self._select_directory)
+        self.browse_btn.grid(row=0, column=1)
+
+        # Global Options (right panel, fixed width)
+        opts = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER, width=200)
+        opts.grid(row=0, column=1, padx=6, pady=6, sticky="ns")
         opts.pack_propagate(False)
-        ctk.CTkLabel(opts, text="Global Options", text_color=self.C_MUTED, font=self.F_SUB).pack(fill="x", padx=20, pady=(12, 6))
-        self.sw_dry = ctk.CTkSwitch(opts, text="⏀ Dry Run", variable=self.dry_run_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
-        self.sw_dry.pack(fill="x", padx=20, pady=3)
-        self.sw_rec = ctk.CTkSwitch(opts, text="⟲ Recursive", variable=self.recursive_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER, command=self._on_recursive_toggle)
-        self.sw_rec.pack(fill="x", padx=20, pady=3)
-        self.sw_dedup = ctk.CTkSwitch(opts, text="⎔ Dedup Scan", font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
-        self.sw_dedup.pack(fill="x", padx=20, pady=(3, 10))
 
-        # ROW 1: Path Strip
-        path_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
-        path_card.grid(row=1, column=0, columnspan=2, padx=6, pady=6, sticky="ew")
-        pf = ctk.CTkFrame(path_card, fg_color="transparent", bg_color=self.C_CARD)
-        pf.pack(fill="x", padx=16, pady=12)
-        self.path_entry = ctk.CTkEntry(pf, placeholder_text="Select directory...", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=self.F_CONSOLE, height=36, corner_radius=BTN_RADIUS, textvariable=self.path_var)
-        self.path_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        self.browse_btn = ctk.CTkButton(pf, text="Browse Scope", font=self.F_BTN, fg_color=ACCENT_BLUE, hover_color="#004BB3", height=36, width=120, corner_radius=BTN_RADIUS, command=self._select_directory)
-        self.browse_btn.pack(side="left")
+        ctk.CTkLabel(opts, text="Global Options", font=(gf, 11), text_color=self.C_MUTED).pack(anchor="w", padx=16, pady=(14, 8))
+
+        def _opt_row(parent, label, icon_color, var):
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", padx=14, pady=3)
+            tag = ctk.CTkFrame(row, width=8, height=8, corner_radius=2, fg_color=icon_color)
+            tag.pack(side="left", padx=(0, 8))
+            ctk.CTkLabel(row, text=label, font=(gf, 11), text_color=self.C_TEXT).pack(side="left")
+            ctk.CTkSwitch(row, variable=var, text="", width=36, height=18, progress_color=ACCENT_GREEN, button_color="#FFFFFF", button_hover_color="#EEEEEE").pack(side="right")
+
+        _opt_row(opts, "Dry Run", ACCENT_BLUE, self.dry_run_var)
+        _opt_row(opts, "Recursive", ACCENT_ORANGE, self.recursive_var)
+        dedup_var = tk.BooleanVar(value=False)
+        _opt_row(opts, "Dedup Scan", ACCENT_CORAL, dedup_var)
+        self.sw_dedup_var = dedup_var
+        ctk.CTkFrame(opts, fg_color="transparent", height=12).pack()
+
+        # ROW 1: Path Strip (removed - path is now in brand card)
 
         # ROW 2: Dedup + Rename
-        dedup_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
+        dedup_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
         dedup_card.grid(row=2, column=0, padx=6, pady=6, sticky="nsew")
-        ctk.CTkLabel(dedup_card, text="Deduplication Engine", text_color=self.C_MUTED, font=(gf, 14, "bold")).pack(fill="x", padx=16, pady=(12, 8))
-        ctk.CTkLabel(dedup_card, text="Purge Mode:", text_color=self.C_TEXT, font=self.F_LABEL).pack(fill="x", padx=16, pady=(4, 2))
-        self.opt_link_mode = ctk.CTkOptionMenu(dedup_card, values=["SMART_LINK", "HARDLINK", "DELETE"], fg_color=self.C_BTN, button_color=ACCENT_BLUE, text_color=self.C_TEXT, font=self.F_LABEL)
-        self.opt_link_mode.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(dedup_card, text="Entropy Threshold:", text_color=self.C_TEXT, font=self.F_LABEL).pack(fill="x", padx=16, pady=(10, 2))
-        self.txt_threshold = ctk.CTkEntry(dedup_card, placeholder_text="6.8", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=self.F_LABEL, corner_radius=BTN_RADIUS)
+        ctk.CTkLabel(dedup_card, text="Deduplication Engine", text_color=self.C_MUTED, font=(gf, 12, "bold")).pack(anchor="w", padx=16, pady=(12, 4))
+        ctk.CTkFrame(dedup_card, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=(0, 8))
+        ctk.CTkLabel(dedup_card, text="Purge Mode", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(4, 2))
+        self.opt_link_mode = ctk.CTkOptionMenu(dedup_card, values=["SMART_LINK", "HARDLINK", "DELETE"], fg_color=self.C_BTN, button_color=ACCENT_BLUE, text_color=self.C_TEXT, font=(gf, 11))
+        self.opt_link_mode.pack(fill="x", padx=16, pady=(0, 8))
+        ctk.CTkLabel(dedup_card, text="Entropy Threshold", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(4, 2))
+        self.txt_threshold = ctk.CTkEntry(dedup_card, placeholder_text="6.8", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=(gf, 11), corner_radius=INPUT_RADIUS, height=30)
         self.txt_threshold.pack(fill="x", padx=16, pady=(0, 12))
 
-        rename_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
+        rename_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
         rename_card.grid(row=2, column=1, padx=6, pady=6, sticky="nsew")
-        ctk.CTkLabel(rename_card, text="Regex Rename Config", text_color=self.C_MUTED, font=(gf, 14, "bold")).pack(fill="x", padx=16, pady=(12, 8))
-        ctk.CTkLabel(rename_card, text="Pattern:", text_color=self.C_TEXT, font=self.F_LABEL).pack(fill="x", padx=16, pady=(4, 2))
-        self.txt_regex = ctk.CTkEntry(rename_card, placeholder_text=r"^.*$", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=self.F_LABEL, corner_radius=BTN_RADIUS)
-        self.txt_regex.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(rename_card, text="Template:", text_color=self.C_TEXT, font=self.F_LABEL).pack(fill="x", padx=16, pady=(10, 2))
-        self.txt_template = ctk.CTkEntry(rename_card, placeholder_text="${creation_date}/${ext}/", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=self.F_LABEL, corner_radius=BTN_RADIUS)
-        self.txt_template.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkLabel(rename_card, text="Regex Rename", text_color=self.C_MUTED, font=(gf, 12, "bold")).pack(anchor="w", padx=16, pady=(12, 4))
+        ctk.CTkFrame(rename_card, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=(0, 8))
+        ctk.CTkLabel(rename_card, text="Pattern", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(4, 2))
+        self.txt_regex = ctk.CTkEntry(rename_card, placeholder_text=r"^.*$", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=("Courier", 11), corner_radius=INPUT_RADIUS, height=30)
+        self.txt_regex.pack(fill="x", padx=16, pady=(0, 4))
+        ctk.CTkLabel(rename_card, text="Template", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(8, 2))
+        self.txt_template = ctk.CTkEntry(rename_card, placeholder_text="${creation_date}/${ext}/", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=("Courier", 11), corner_radius=INPUT_RADIUS, height=30)
+        self.txt_template.pack(fill="x", padx=16, pady=(0, 4))
+        ctk.CTkLabel(rename_card, text="tokens: ${creation_date}  ${ext}  ${filename}  ${year}", font=(gf, 9), text_color=self.C_MUTED, anchor="w").pack(anchor="w", padx=16, pady=(4, 12))
 
         # ROW 3: Operations + Monitor
-        ops_frame = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
+        ops_frame = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
         ops_frame.grid(row=3, column=0, padx=6, pady=6, sticky="nsew")
         ops_frame.grid_columnconfigure((0, 1), weight=1)
         ops_frame.grid_rowconfigure((0, 1), weight=1)
 
-        self.organize_btn = ctk.CTkButton(ops_frame, text="▶ Organize", font=self.F_BTN, fg_color=ACCENT_GREEN, hover_color="#1B9E46", text_color="#000000", height=40, corner_radius=BTN_RADIUS, command=self._start_organizing)
+        self.organize_btn = ctk.CTkButton(ops_frame, text="▶ Organize", font=(gf, 12, "bold"), fg_color=ACCENT_GREEN, hover_color="#2DB84D", text_color="#FFFFFF", height=38, corner_radius=BTN_RADIUS, command=self._start_organizing)
         self.organize_btn.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        self.undo_btn = ctk.CTkButton(ops_frame, text="⟲ Undo", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=BTN_RADIUS, command=self._undo_action, state="disabled")
+        self.undo_btn = ctk.CTkButton(ops_frame, text="⟲ Undo", font=(gf, 12, "bold"), fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=38, corner_radius=BTN_RADIUS, command=self._undo_action, state="disabled")
         self.undo_btn.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
-        self.open_folder_btn = ctk.CTkButton(ops_frame, text="📁 Open Folder", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=BTN_RADIUS, command=self._open_folder)
+        self.open_folder_btn = ctk.CTkButton(ops_frame, text="📁 Open Folder", font=(gf, 11), fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=36, corner_radius=BTN_RADIUS, command=self._open_folder)
         self.open_folder_btn.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
-        self.settings_btn = ctk.CTkButton(ops_frame, text="⚙ Settings", font=self.F_BTN, fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=40, corner_radius=BTN_RADIUS, command=self._open_settings)
+        self.settings_btn = ctk.CTkButton(ops_frame, text="⚙ Settings", font=(gf, 11), fg_color=self.C_BTN, hover_color=self.C_BTN_HOVER, text_color=self.C_TEXT, height=36, corner_radius=BTN_RADIUS, command=self._open_settings)
         self.settings_btn.grid(row=1, column=1, padx=10, pady=(0, 10), sticky="nsew")
 
-        # Process Monitor (with pack_propagate(False) fix)
-        monitor = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
+        # Process Monitor
+        monitor = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
         monitor.grid(row=3, column=1, padx=6, pady=6, sticky="nsew")
         monitor.grid_rowconfigure(2, weight=1)
         monitor.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(monitor, text="Process Monitor", text_color=self.C_MUTED, font=(gf, 14, "bold")).grid(row=0, column=0, sticky="w", padx=16, pady=(12, 4))
+        ctk.CTkLabel(monitor, text="Process Monitor", text_color=self.C_MUTED, font=(gf, 12, "bold")).grid(row=0, column=0, sticky="w", padx=16, pady=(12, 4))
 
         status_frame = ctk.CTkFrame(monitor, fg_color="transparent", bg_color=self.C_CARD)
         status_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 6))
 
-        # FIXED WIDTH status label prevents reflow jitter
-        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=ACCENT_GREEN, font=self.F_SUB, width=350, anchor="w")
+        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=ACCENT_GREEN, font=(gf, 11), width=350, anchor="w")
         self.status_label.pack(side="left")
-
-        # FIXED WIDTH progress label
-        self.progress_label = ctk.CTkLabel(status_frame, text="0%", text_color=self.C_MUTED, font=self.F_SUB, width=50, anchor="e")
+        self.progress_label = ctk.CTkLabel(status_frame, text="0%", text_color=self.C_MUTED, font=(gf, 11), width=50, anchor="e")
         self.progress_label.pack(side="right")
-
         self.progress_bar = ctk.CTkProgressBar(status_frame, height=6, fg_color=self.C_BORDER, progress_color=ACCENT_BLUE)
         self.progress_bar.pack(side="right", fill="x", expand=True, padx=(12, 8))
         self.progress_bar.set(0.0)
 
-        self.console = ctk.CTkTextbox(monitor, fg_color=self.C_ENTRY, text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=BTN_RADIUS, border_color=self.C_BORDER, border_width=1)
+        self.console = ctk.CTkTextbox(monitor, fg_color=("#F8F8FA", "#1C1C1E"), text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=INPUT_RADIUS, border_color=self.C_BORDER, border_width=1)
         self.console.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
-        self.console.insert("end", ">> boBnox v3.0.0 initialized.\n>> Awaiting target directory...\n")
+        self.console.insert("end", ">> boBnox v4.0.0 initialized.\n>> Awaiting target directory...\n")
         self.console.configure(state="disabled")
 
     def _toggle_theme(self):
@@ -1242,7 +1255,6 @@ class BoBnoxApp(ctk.CTk):
             btn.configure(state=state)
         self.sw_dry.configure(state=state)
         self.sw_rec.configure(state=state)
-        self.sw_dedup.configure(state=state)
         self.path_entry.configure(state=state)
 
     def _start_organizing(self):
@@ -1268,7 +1280,7 @@ class BoBnoxApp(ctk.CTk):
             moved = self.organizer.organize_directory(
                 path, self._update_status, dry_run=dry_run,
                 use_mime=self.mime_switch.get() == 1,
-                dedup_scan=self.sw_dedup.get() == 1
+                dedup_scan=self.sw_dedup_var.get()
             )
             msg = f"Preview: {moved} files." if dry_run and moved else f"Done! Moved {moved} files." if moved else "No files to move."
             self.after(0, lambda: self._log(f"\n[DONE] {msg}"))
