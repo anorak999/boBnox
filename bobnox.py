@@ -1,5 +1,8 @@
 import os
+import sys
 import shutil
+import subprocess
+import platform
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
@@ -9,15 +12,12 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict
-from enum import Enum
 
 # --- Logging Configuration ---
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
-    """Set up logging with proper formatting."""
     logger = logging.getLogger("bobnox")
     if not logger.handlers:
         handler = logging.StreamHandler()
@@ -28,33 +28,68 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
 logger = setup_logging()
 
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
+
+# --- Nautilus / File Manager Integration ---
+def open_in_file_manager(path: str):
+    """Open a folder in the system file manager (Nautilus on Linux, Finder on macOS)."""
+    try:
+        if IS_MACOS:
+            subprocess.Popen(["open", path])
+        elif IS_LINUX:
+            subprocess.Popen(["nautilus", path])
+        else:
+            subprocess.Popen(["explorer", path])
+    except FileNotFoundError:
+        try:
+            subprocess.Popen(["xdg-open", path])
+        except FileNotFoundError:
+            logger.warning("No file manager found to open path")
+
+def select_folder_via_nautilus() -> Optional[str]:
+    """Use Nautilus (Linux) or Finder (macOS) to select a folder via portal dialog."""
+    if IS_LINUX:
+        try:
+            result = subprocess.run(
+                ["zenity", "--file-selection", "--directory", "--title=Select Folder to Organize"],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except FileNotFoundError:
+            pass
+    if IS_MACOS:
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", 'tell application "Finder" to set folderPath to POSIX path of (choose folder)'],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except FileNotFoundError:
+            pass
+    return None
+
 # --- Configuration ---
 DEFAULT_CONFIG = {
     "extension_map": {
-        # Images
         '.jpg': 'Images', '.jpeg': 'Images', '.png': 'Images', '.gif': 'Images',
         '.bmp': 'Images', '.svg': 'Images', '.tiff': 'Images', '.webp': 'Images',
         '.heic': 'Images',
-        # Documents
         '.pdf': 'Documents', '.doc': 'Documents', '.docx': 'Documents',
         '.txt': 'Text Documents', '.rtf': 'Documents', '.odt': 'Documents',
         '.md': 'Text Documents',
-        # Spreadsheets & Presentations
         '.xls': 'Spreadsheets', '.xlsx': 'Spreadsheets', '.csv': 'Spreadsheets',
         '.ppt': 'Presentations', '.pptx': 'Presentations',
-        # Audio
         '.mp3': 'Audio', '.wav': 'Audio', '.aac': 'Audio', '.flac': 'Audio',
         '.ogg': 'Audio', '.m4a': 'Audio',
-        # Video
         '.mp4': 'Videos', '.mov': 'Videos', '.avi': 'Videos', '.mkv': 'Videos',
         '.wmv': 'Videos', '.flv': 'Videos',
-        # Archives
         '.zip': 'Archives', '.rar': 'Archives', '.7z': 'Archives', '.tar': 'Archives',
         '.gz': 'Archives',
-        # Code & Scripts
         '.py': 'Scripts', '.js': 'Scripts', '.html': 'Web Files', '.css': 'Web Files',
         '.java': 'Code', '.cpp': 'Code', '.c': 'Code', '.sh': 'Scripts',
-        # Executables & Installers
         '.exe': 'Executables', '.msi': 'Installers', '.dmg': 'Installers',
     },
     "organize_subdirectories": False,
@@ -67,7 +102,6 @@ HISTORY_FILE = CONFIG_DIR / "undo_history.json"
 
 
 def load_config() -> dict:
-    """Load configuration from file, creating default if needed."""
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, 'r') as f:
@@ -81,7 +115,6 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> bool:
-    """Save configuration to file."""
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, 'w') as f:
@@ -94,7 +127,6 @@ def save_config(config: dict) -> bool:
 
 
 def load_undo_history() -> list:
-    """Load undo history from file."""
     if HISTORY_FILE.exists():
         try:
             with open(HISTORY_FILE, 'r') as f:
@@ -105,7 +137,6 @@ def load_undo_history() -> list:
 
 
 def save_undo_history(history: list) -> bool:
-    """Save undo history to file."""
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(HISTORY_FILE, 'w') as f:
@@ -116,7 +147,6 @@ def save_undo_history(history: list) -> bool:
         return False
 
 
-# Optional SVG rendering support
 HAS_SVG_SUPPORT = False
 try:
     import cairosvg
@@ -128,7 +158,6 @@ except Exception:
 
 # --- 1. CORE LOGIC CLASS ---
 class FileOrganizer:
-    """Handles the actual file organization logic, decoupled from the GUI."""
 
     def __init__(self, config: Optional[dict] = None):
         self.config = config or load_config()
@@ -139,27 +168,14 @@ class FileOrganizer:
         self._load_persistent_history()
 
     def _load_persistent_history(self):
-        """Load undo history from persistent storage."""
         history = load_undo_history()
         self._move_history = [(Path(h["current"]), Path(h["original"])) for h in history]
 
     def _save_persistent_history(self):
-        """Save undo history to persistent storage."""
         history = [{"current": str(c), "original": str(o)} for c, o in self._move_history]
         save_undo_history(history)
 
     def organize_directory(self, directory_path: str, status_callback, dry_run: bool = False) -> int:
-        """
-        Organizes files in the given directory into subfolders.
-
-        Args:
-            directory_path: Path to directory to organize
-            status_callback: Callback function(message, progress_percent)
-            dry_run: If True, only simulate without moving files
-
-        Returns:
-            Number of files moved (or would be moved in dry run)
-        """
         if not os.path.isdir(directory_path):
             raise FileNotFoundError("The selected path is not a valid directory.")
 
@@ -236,12 +252,6 @@ class FileOrganizer:
         return files_moved
 
     def undo_last_organization(self, status_callback) -> int:
-        """
-        Undo the last organization by moving files back to their original locations.
-
-        Returns:
-            Number of files restored
-        """
         if not self._move_history:
             status_callback("Nothing to undo.", 1.0)
             return 0
@@ -270,37 +280,44 @@ class FileOrganizer:
 
 # --- 2. SETTINGS DIALOG ---
 class SettingsDialog(tk.Toplevel):
-    """Dialog for editing extension mappings and settings."""
 
-    def __init__(self, parent, config: dict, on_save_callback):
+    def __init__(self, parent, config: dict, on_save_callback, theme_is_aqua: bool = False):
         super().__init__(parent)
         self.config = config.copy()
         self.on_save = on_save_callback
+        self.theme_is_aqua = theme_is_aqua
         self.title("Settings")
         self.geometry("500x600")
-        self.configure(bg="#1E1E1E")
         self.resizable(False, False)
         self.grab_set()
+
+        if not theme_is_aqua:
+            self.configure(bg="#1E1E1E")
 
         self.extension_entries = {}
         self._create_widgets()
 
     def _create_widgets(self):
-        style = ttk.Style(self)
-        style.theme_use('clam')
-        style.configure("Dialog.TFrame", background="#1E1E1E")
-        style.configure("Dialog.TLabel", background="#1E1E1E", foreground="#FFFFFF", font=("Inter", 11))
-        style.configure("Dialog.TButton", font=("Inter", 11, "bold"), padding=[10, 5])
-
-        main_frame = ttk.Frame(self, padding="15", style="Dialog.TFrame")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        if not self.theme_is_aqua:
+            style = ttk.Style(self)
+            style.configure("Dialog.TFrame", background="#1E1E1E")
+            style.configure("Dialog.TLabel", background="#1E1E1E", foreground="#FFFFFF", font=("Inter", 11))
+            main_frame = ttk.Frame(self, padding="15", style="Dialog.TFrame")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+            header_fg = "#0078D4"
+            canvas_bg = "#1E1E1E"
+        else:
+            main_frame = ttk.Frame(self, padding="15")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+            header_fg = "#007AFF"
+            canvas_bg = "#FFFFFF"
 
         ttk.Label(main_frame, text="Extension Mappings", font=("Inter", 14, "bold"),
-                  background="#1E1E1E", foreground="#0078D4").pack(pady=(0, 10))
+                  foreground=header_fg).pack(pady=(0, 10))
 
-        canvas = tk.Canvas(main_frame, bg="#1E1E1E", highlightthickness=0)
+        canvas = tk.Canvas(main_frame, bg=canvas_bg, highlightthickness=0)
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas, style="Dialog.TFrame")
+        scrollable_frame = ttk.Frame(canvas)
 
         scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
@@ -311,18 +328,16 @@ class SettingsDialog(tk.Toplevel):
 
         row = 0
         for ext, folder in sorted(self.config.get("extension_map", {}).items()):
-            ttk.Label(scrollable_frame, text=ext, style="Dialog.TLabel").grid(
+            ttk.Label(scrollable_frame, text=ext, font=("Inter", 11)).grid(
                 row=row, column=0, sticky="w", padx=(0, 10), pady=2)
-
             entry = ttk.Entry(scrollable_frame, width=20)
             entry.insert(0, folder)
             entry.grid(row=row, column=1, sticky="ew", pady=2)
             self.extension_entries[ext] = entry
             row += 1
 
-        button_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
+        button_frame = ttk.Frame(main_frame)
         button_frame.pack(pady=(15, 0))
-
         ttk.Button(button_frame, text="Save", command=self._save).pack(side="left", padx=5)
         ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="left", padx=5)
 
@@ -335,63 +350,80 @@ class SettingsDialog(tk.Toplevel):
 
 # --- 3. GUI APPLICATION CLASS ---
 class FileOrganizerApp(tk.Tk):
-    """Aesthetically improved GUI application for FileOrganizer."""
 
     def __init__(self):
         super().__init__()
         self.config = load_config()
         self.organizer = FileOrganizer(self.config)
-        self.title("boBnox(V3.2)")
-        self.geometry("520x480")
-        self.configure(bg="#1E1E1E")
+        self.title("boBnox")
+        self.geometry("560x520")
+        self.minsize(480, 440)
         self.path_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready. Select a folder to begin.")
         self.dry_run_var = tk.BooleanVar(value=False)
         self.recursive_var = tk.BooleanVar(value=self.config.get("organize_subdirectories", False))
         self.log_messages = []
+        self.theme_is_aqua = False
 
-        self.setup_styles()
+        self._setup_theme()
         self.create_widgets()
 
-    def setup_styles(self):
-        """Configures the dark, flat look and feel."""
+    def _setup_theme(self):
         style = ttk.Style(self)
-        style.theme_use('clam')
 
-        self.BG_DARK = "#1E1E1E"
-        self.BG_MID = "#2D2D30"
-        self.FG_LIGHT = "#FFFFFF"
-        self.ACCENT_COLOR = "#0078D4"
+        if IS_MACOS:
+            try:
+                style.theme_use('aqua')
+                self.theme_is_aqua = True
+                self.BG_DARK = "#ECECEC"
+                self.BG_MID = "#D4D4D4"
+                self.FG_LIGHT = "#1D1D1F"
+                self.ACCENT_COLOR = "#007AFF"
+            except Exception:
+                self.theme_is_aqua = False
+
+        if not self.theme_is_aqua:
+            try:
+                style.theme_use('clam')
+            except Exception:
+                pass
+            self.BG_DARK = "#1E1E1E"
+            self.BG_MID = "#2D2D30"
+            self.FG_LIGHT = "#FFFFFF"
+            self.ACCENT_COLOR = "#0078D4"
+            self.configure(bg=self.BG_DARK)
 
         style.configure("TFrame", background=self.BG_DARK)
         style.configure("TLabel", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 12))
-        style.configure("Title.TLabel", font=("Inter", 24, "bold"), foreground=self.ACCENT_COLOR)
-        style.configure("Status.TLabel", background=self.BG_DARK, foreground="#999999", font=("Inter", 10, "italic"))
-        style.configure("TEntry", fieldbackground=self.BG_MID, foreground=self.FG_LIGHT, borderwidth=0, relief="flat", padding=8)
-        style.configure("TButton", font=("Inter", 12, "bold"), background=self.BG_DARK, foreground=self.FG_LIGHT, borderwidth=0, relief="flat", padding=[15, 8])
-        style.map("TButton", background=[('active', '#005A9E'), ('disabled', '#555555')], foreground=[('active', 'white')])
-        style.configure("TProgressbar", troughcolor=self.BG_MID, background=self.ACCENT_COLOR, troughrelief="flat", borderwidth=0)
+        style.configure("Status.TLabel", background=self.BG_DARK, foreground="#888888", font=("Inter", 10, "italic"))
+        style.configure("TEntry", font=("Inter", 11))
+        style.configure("TButton", font=("Inter", 11, "bold"), padding=[12, 6])
+        style.configure("TProgressbar", troughcolor=self.BG_MID, background=self.ACCENT_COLOR)
         style.configure("TCheckbutton", background=self.BG_DARK, foreground=self.FG_LIGHT, font=("Inter", 10))
-        style.map("TCheckbutton", background=[('active', self.BG_DARK)])
 
     def create_widgets(self):
-        """Creates and positions all UI elements."""
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(expand=True, fill=tk.BOTH)
         main_frame.grid_columnconfigure(0, weight=1)
 
         path_frame = ttk.Frame(main_frame)
-        path_frame.grid(row=0, column=0, sticky="ew", pady=(0, 20))
+        path_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
         path_frame.grid_columnconfigure(0, weight=1)
 
-        self.path_entry = ttk.Entry(path_frame, textvariable=self.path_var)
+        self.path_entry = ttk.Entry(path_frame, textvariable=self.path_var, font=("Inter", 11))
         self.path_entry.grid(row=0, column=0, sticky="ew")
 
-        browse_button = ttk.Button(path_frame, text="Browse...", command=self.select_directory)
-        browse_button.grid(row=0, column=1, padx=(10, 0))
+        browse_frame = ttk.Frame(path_frame)
+        browse_frame.grid(row=0, column=1, padx=(8, 0))
+
+        browse_button = ttk.Button(browse_frame, text="Browse...", command=self.select_directory)
+        browse_button.pack(side="left")
+
+        nautilus_button = ttk.Button(browse_frame, text="Nautilus", command=self.select_via_nautilus)
+        nautilus_button.pack(side="left", padx=(4, 0))
 
         options_frame = ttk.Frame(main_frame)
-        options_frame.grid(row=1, column=0, sticky="ew", pady=(0, 15))
+        options_frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         options_frame.grid_columnconfigure(0, weight=1)
 
         self.dry_run_check = ttk.Checkbutton(options_frame, text="Dry Run (Preview only)", variable=self.dry_run_var)
@@ -400,7 +432,7 @@ class FileOrganizerApp(tk.Tk):
         self.recursive_check = ttk.Checkbutton(options_frame, text="Include Subdirectories", variable=self.recursive_var, command=self._on_recursive_toggle)
         self.recursive_check.grid(row=0, column=1, sticky="w")
 
-        assets_dir = os.path.join(os.path.dirname(__file__), 'assets')
+        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
         svg_path = os.path.join(assets_dir, 'Sort--Streamline-Solar.svg')
 
         self.organize_img = None
@@ -410,28 +442,31 @@ class FileOrganizerApp(tk.Tk):
                 img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
                 self.organize_img = ImageTk.PhotoImage(img)
                 self.organize_button = tk.Button(main_frame, image=self.organize_img, command=self.start_organizing_thread, bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.BG_DARK, activebackground=self.BG_DARK)
-            except Exception as e:
+            except Exception:
                 self.organize_button = self._create_text_button(main_frame)
         else:
             self.organize_button = self._create_text_button(main_frame)
 
-        self.organize_button.grid(row=2, column=0, pady=(10, 10))
+        self.organize_button.grid(row=2, column=0, pady=(8, 8))
 
         secondary_frame = ttk.Frame(main_frame)
-        secondary_frame.grid(row=3, column=0, sticky="ew", pady=(0, 10))
-        secondary_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        secondary_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        secondary_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         self.undo_button = ttk.Button(secondary_frame, text="Undo", command=self.undo_last_action, state='disabled')
-        self.undo_button.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        self.undo_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
 
         self.settings_button = ttk.Button(secondary_frame, text="Settings", command=self.open_settings)
-        self.settings_button.grid(row=0, column=1, sticky="ew", padx=5)
+        self.settings_button.grid(row=0, column=1, sticky="ew", padx=4)
+
+        self.open_folder_button = ttk.Button(secondary_frame, text="Open Folder", command=self.open_organized_folder)
+        self.open_folder_button.grid(row=0, column=2, sticky="ew", padx=4)
 
         self.clear_log_button = ttk.Button(secondary_frame, text="Clear Log", command=self.clear_log)
-        self.clear_log_button.grid(row=0, column=2, sticky="ew", padx=(5, 0))
+        self.clear_log_button.grid(row=0, column=3, sticky="ew", padx=(4, 0))
 
         self.progress_bar = ttk.Progressbar(main_frame, orient="horizontal", mode="determinate")
-        self.progress_bar.grid(row=4, column=0, sticky="ew", pady=(0, 10))
+        self.progress_bar.grid(row=4, column=0, sticky="ew", pady=(0, 8))
 
         self.status_label = ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel")
         self.status_label.grid(row=5, column=0, sticky="w")
@@ -442,7 +477,10 @@ class FileOrganizerApp(tk.Tk):
         log_frame.grid_rowconfigure(0, weight=1)
         main_frame.grid_rowconfigure(6, weight=1)
 
-        self.log_text = tk.Text(log_frame, height=8, bg=self.BG_MID, fg=self.FG_LIGHT, font=("Consolas", 9), relief='flat', bd=0, wrap='word', state='disabled')
+        log_bg = self.BG_MID if not self.theme_is_aqua else "#F5F5F5"
+        log_fg = self.FG_LIGHT if not self.theme_is_aqua else "#1D1D1F"
+
+        self.log_text = tk.Text(log_frame, height=8, bg=log_bg, fg=log_fg, font=("Menlo" if IS_MACOS else "Consolas", 9), relief='flat', bd=0, wrap='word', state='disabled')
         self.log_text.grid(row=0, column=0, sticky="nsew")
 
         log_scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
@@ -450,13 +488,26 @@ class FileOrganizerApp(tk.Tk):
         self.log_text.configure(yscrollcommand=log_scrollbar.set)
 
     def _create_text_button(self, parent):
-        """Create a fallback text button when SVG is unavailable."""
         return tk.Button(parent, text="Organize", command=self.start_organizing_thread, font=("Inter", 12, "bold"), bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.ACCENT_COLOR, fg=self.FG_LIGHT, activebackground='#005A9E', padx=20, pady=8)
 
     def select_directory(self):
         path = filedialog.askdirectory()
         if path:
             self.path_var.set(path)
+
+    def select_via_nautilus(self):
+        """Open Nautilus/Finder folder picker."""
+        path = select_folder_via_nautilus()
+        if path:
+            self.path_var.set(path)
+
+    def open_organized_folder(self):
+        """Open the selected folder in Nautilus/Finder."""
+        path = self.path_var.get()
+        if path and os.path.isdir(path):
+            open_in_file_manager(path)
+        else:
+            messagebox.showwarning("Warning", "Please select a valid folder first.")
 
     def _on_recursive_toggle(self):
         self.config["organize_subdirectories"] = self.recursive_var.get()
@@ -476,7 +527,7 @@ class FileOrganizerApp(tk.Tk):
         self.log_messages.clear()
 
     def open_settings(self):
-        SettingsDialog(self, self.config, self.on_settings_save)
+        SettingsDialog(self, self.config, self.on_settings_save, self.theme_is_aqua)
 
     def on_settings_save(self, new_config: dict):
         self.config = new_config
@@ -528,15 +579,12 @@ class FileOrganizerApp(tk.Tk):
     def undo_action(self):
         try:
             restored = self.organizer.undo_last_organization(self.update_status)
-
             if restored > 0:
                 final_message = f"Undo complete! Restored {restored} files."
             else:
                 final_message = "Nothing to restore."
-
             self.after(0, lambda: messagebox.showinfo("Undo Complete", final_message))
             self.after(0, self.reset_ui)
-
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror("Error", f"Undo failed: {err}"))
@@ -561,7 +609,6 @@ class FileOrganizerApp(tk.Tk):
     def organize_action(self, directory_path, dry_run: bool):
         try:
             self.organizer.organize_subdirectories = self.recursive_var.get()
-
             files_moved = self.organizer.organize_directory(directory_path, self.update_status, dry_run=dry_run)
 
             if dry_run:
@@ -601,7 +648,6 @@ class FileOrganizerApp(tk.Tk):
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             log_filename = f"bobnox-log-{timestamp}.txt"
             log_path = os.path.join(directory_path, log_filename)
-
             with open(log_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(self.log_messages))
             self._log_to_ui(f"Log saved to: {log_filename}")
@@ -616,6 +662,7 @@ class FileOrganizerApp(tk.Tk):
         self.dry_run_check.config(state=state)
         self.recursive_check.config(state=state)
         self.settings_button.config(state=state)
+        self.open_folder_button.config(state=state)
         if not disabled:
             self.undo_button.config(state='normal' if self.organizer._move_history else 'disabled')
 
