@@ -538,7 +538,8 @@ class FileOrganizerApp(tk.Tk):
             self.after(0, self.reset_ui)
 
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Error", f"Undo failed: {e}"))
+            err = str(e)
+            self.after(0, lambda: messagebox.showerror("Error", f"Undo failed: {err}"))
             self.after(0, self.reset_ui)
 
     def update_status(self, message, progress_value):
@@ -581,16 +582,18 @@ class FileOrganizerApp(tk.Tk):
             self.after(0, self.reset_ui)
 
         except FileNotFoundError as e:
-            self.log_messages.append(f"ERROR: {str(e)}")
+            err = str(e)
+            self.log_messages.append(f"ERROR: {err}")
             if self.organizer.create_log_file:
                 self._save_log_file(directory_path)
-            self.after(0, lambda: messagebox.showerror("Error", str(e)))
+            self.after(0, lambda: messagebox.showerror("Error", err))
             self.after(0, self.reset_ui)
         except Exception as e:
-            self.log_messages.append(f"ERROR: {str(e)}")
+            err = str(e)
+            self.log_messages.append(f"ERROR: {err}")
             if self.organizer.create_log_file:
                 self._save_log_file(directory_path)
-            self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred: {e}"))
+            self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred: {err}"))
             self.after(0, self.reset_ui)
 
     def _save_log_file(self, directory_path):
