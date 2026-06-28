@@ -878,7 +878,6 @@ class SettingsDialog(ctk.CTkToplevel):
 
         # Theme colors
         is_dark = ctk.get_appearance_mode() == "Dark"
-        bg = BG_DARK if is_dark else BG_LIGHT
         card = CARD_DARK if is_dark else CARD_LIGHT
         text = TEXT_DARK if is_dark else TEXT_LIGHT
         muted = MUTED_DARK if is_dark else MUTED_LIGHT
@@ -887,22 +886,18 @@ class SettingsDialog(ctk.CTkToplevel):
         btn_dark = BTN_DARK if is_dark else BTN_LIGHT
         btn_hover = BTN_HOVER_DARK if is_dark else BTN_HOVER_LIGHT
 
-        # Center on parent
+        # Force parent to calculate actual dimensions before centering
+        parent.update_idletasks()
+
+        # Center on parent using actual coordinates
         px, py = parent.winfo_x(), parent.winfo_y()
         pw, ph = parent.winfo_width(), parent.winfo_height()
         x = px + (pw // 2) - 260
         y = py + (ph // 2) - 310
         self.geometry(f"520x620+{max(0, x)}+{max(0, y)}")
 
-        # FIX: Explicit bg_color on Toplevel
+        # Fix bg_color on Toplevel
         self.configure(fg_color=card, bg_color=card)
-
-        # Linux dialog type
-        if IS_LINUX:
-            try:
-                self.attributes('-type', 'dialog')
-            except Exception:
-                pass
 
         # Main container with explicit bg_color chain
         main_container = ctk.CTkFrame(self, fg_color=card, bg_color=card, corner_radius=APP_RADIUS)
@@ -1229,7 +1224,15 @@ class BoBnoxApp(ctk.CTk):
             open_in_nautilus(path)
 
     def _open_settings(self):
-        SettingsDialog(self, self.app_config, self._on_settings_save)
+        # Prevent multiple settings windows stacking
+        if hasattr(self, '_settings_win') and self._settings_win is not None:
+            try:
+                if self._settings_win.winfo_exists():
+                    self._settings_win.focus()
+                    return
+            except Exception:
+                pass
+        self._settings_win = SettingsDialog(self, self.app_config, self._on_settings_save)
 
     def _on_settings_save(self, new_config: dict):
         self.app_config = new_config
