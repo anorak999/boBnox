@@ -39,6 +39,13 @@ except ImportError:
 IS_MACOS = platform.system() == "Darwin"
 IS_LINUX = platform.system() == "Linux"
 
+# Fix rendering artifacts on Linux by forcing circle shapes
+if IS_LINUX:
+    try:
+        ctk.CTkDrawEngine.preferred_drawing_method = "circle_shapes"
+    except Exception:
+        pass
+
 # ======================================================================
 # DESIGN TOKENS - Unified Bento styling constants
 # ======================================================================
@@ -871,27 +878,34 @@ class SettingsDialog(ctk.CTkToplevel):
         muted = MUTED_DARK if is_dark else MUTED_LIGHT
         border = BORDER_DARK if is_dark else BORDER_LIGHT
 
-        # Fix: Match Toplevel bg to card color, zero padding to eliminate corner leak
+        # Fix 3: Suppress native window borders on Linux
+        if IS_LINUX:
+            try:
+                self.overrideredirect(True)
+            except Exception:
+                pass
+
+        # Fix 1+2: Match Toplevel bg to card, force uniform background
         self.configure(fg_color=card)
 
-        # Main container fills window completely (no corner leak)
-        main_container = ctk.CTkFrame(self, fg_color=card, corner_radius=0)
+        # Main container with explicit bg_color chain to prevent corner leak
+        main_container = ctk.CTkFrame(self, fg_color=card, corner_radius=APP_RADIUS, bg_color=card)
         main_container.pack(fill="both", expand=True, padx=0, pady=0)
 
         # Content frame with internal padding
-        content = ctk.CTkFrame(main_container, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=20, pady=16)
+        content = ctk.CTkFrame(main_container, fg_color="transparent", bg_color=card)
+        content.pack(fill="both", expand=True, padx=24, pady=20)
 
         # Header
         ctk.CTkLabel(content, text="⚙ Settings", font=("Geist", 18, "bold"), text_color=text).pack(anchor="w", pady=(0, 8))
-        ctk.CTkFrame(content, height=1, fg_color=border).pack(fill="x", pady=(0, 12))
+        ctk.CTkFrame(content, height=1, fg_color=border, bg_color=card).pack(fill="x", pady=(0, 12))
 
-        # Scrollable extension list
-        self.scroll_frame = ctk.CTkScrollableFrame(content, fg_color=card, corner_radius=CARD_RADIUS, border_color=border, border_width=1)
+        # Scrollable extension list with explicit bg chain
+        self.scroll_frame = ctk.CTkScrollableFrame(content, fg_color=card, bg_color=card, corner_radius=CARD_RADIUS, border_color=border, border_width=1)
         self.scroll_frame.pack(fill="both", expand=True, pady=(0, 12))
 
         # Buttons
-        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent", bg_color=card)
         btn_frame.pack(fill="x", pady=(0, 4))
         ctk.CTkButton(btn_frame, text="💾 Save", font=("Geist", 13, "bold"), fg_color=ACCENT_BLUE, hover_color="#004BB3", height=36, corner_radius=BTN_RADIUS, command=self._save).pack(side="left", padx=(0, 8))
         ctk.CTkButton(btn_frame, text="Cancel", font=("Geist", 13), fg_color=BTN_DARK if is_dark else BTN_LIGHT, hover_color=BTN_HOVER_DARK if is_dark else BTN_HOVER_LIGHT, text_color=text, height=36, corner_radius=BTN_RADIUS, command=self.destroy).pack(side="left")
@@ -935,7 +949,7 @@ class BoBnoxApp(ctk.CTk):
         self.organizer = FileOrganizer(self.app_config)
         self.log_messages = []
 
-        self.title("BoBnox v2.1.0")
+        self.title("BoBnox v2.1.2")
         self.geometry("1100x800")
         self.minsize(900, 650)
 
@@ -993,7 +1007,7 @@ class BoBnoxApp(ctk.CTk):
         sidebar.grid_propagate(False)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(pady=(24, 4), padx=20, anchor="w")
-        ctk.CTkLabel(sidebar, text="v2.1.0", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
+        ctk.CTkLabel(sidebar, text="v2.1.2", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
 
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=16)
 
@@ -1105,7 +1119,7 @@ class BoBnoxApp(ctk.CTk):
         # Console (same padx as status header for alignment)
         self.console = ctk.CTkTextbox(cmd_center, fg_color=self.C_ENTRY, text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=BTN_RADIUS, border_color=self.C_BORDER, border_width=1)
         self.console.grid(row=2, column=0, sticky="nsew", padx=20, pady=(0, 20))
-        self.console.insert("end", ">> boBnox v2.0.3 initialized.\n>> Awaiting target directory...\n")
+        self.console.insert("end", ">> boBnox v2.1.2 initialized.\n>> Awaiting target directory...\n")
         self.console.configure(state="disabled")
 
     # --- Theme ---
