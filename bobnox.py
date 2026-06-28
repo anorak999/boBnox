@@ -1177,17 +1177,26 @@ class BoBnoxApp(ctk.CTk):
         path = self.path_var.get()
         if self.daemon_switch.get() == 1:
             if not path or not os.path.isdir(path):
-                self._log("[WARN] Select a valid directory first.")
-                self.daemon_switch.deselect()
+                self.after(0, lambda: self._log("[WARN] Select a valid directory first."))
+                self.after(0, lambda: self.daemon_switch.deselect())
                 return
-            self._watcher = KernelInotifyDaemon(path, lambda p: self.organizer.organize_single_file(p, path))
+            self._watcher = KernelInotifyDaemon(path, lambda p: self.after(0, lambda: self._handle_watched_file(p, path)))
             self._watcher.start()
-            self._log(f"[DAEMON] Watching: {path}")
+            self.after(0, lambda: self._log(f"[DAEMON] Watching: {path}"))
         else:
             if self._watcher:
                 self._watcher.stop()
                 self._watcher = None
-                self._log("[DAEMON] Stopped.")
+                self.after(0, lambda: self._log("[DAEMON] Stopped."))
+
+    def _handle_watched_file(self, file_path: str, watch_dir: str):
+        """Thread-safe handler for files detected by inotify daemon."""
+        try:
+            self.organizer.organize_single_file(file_path, watch_dir)
+            self._log(f"[DAEMON] Processed: {os.path.basename(file_path)}")
+        except Exception as e:
+            err = str(e)
+            self._log(f"[DAEMON] Error: {err}")
 
     # --- Actions ---
     def _log(self, msg: str):
@@ -1244,8 +1253,8 @@ class BoBnoxApp(ctk.CTk):
             self._log("[ERROR] Select a valid directory.")
             return
         self._set_ui_state(True)
-        self.status_label.configure(text="Processing...", text_color="#FFD60A")
-        self.progress_bar.set(0.0)
+        self.after(0, lambda: self.status_label.configure(text="Processing...", text_color="#FFD60A"))
+        self.after(0, lambda: self.progress_bar.set(0.0))
         self._log(f"[INFO] Organizing: {path}")
         threading.Thread(target=self._organize_thread, args=(path, self.dry_run_var.get()), daemon=True).start()
 
@@ -1258,13 +1267,14 @@ class BoBnoxApp(ctk.CTk):
                 dedup_scan=self.sw_dedup.get() == 1
             )
             msg = f"Preview: {moved} files." if dry_run and moved else f"Done! Moved {moved} files." if moved else "No files to move."
-            self._log(f"\n[DONE] {msg}")
+            self.after(0, lambda: self._log(f"\n[DONE] {msg}"))
             self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=ACCENT_GREEN))
             self.after(0, lambda: self.undo_btn.configure(state="normal" if moved > 0 and not dry_run else "disabled"))
             self.after(0, lambda: self.ledger_status.configure(text=f"Pending: {self.organizer.ledger.get_pending_count()}"))
             self.after(0, lambda: self._set_ui_state(False))
         except Exception as e:
-            self._log(f"[ERROR] {e}")
+            err = str(e)
+            self.after(0, lambda: self._log(f"[ERROR] {err}"))
             self.after(0, lambda: self.status_label.configure(text="Error", text_color=ACCENT_CORAL))
             self.after(0, lambda: self._set_ui_state(False))
 
@@ -1278,19 +1288,20 @@ class BoBnoxApp(ctk.CTk):
 
     def _undo_action(self):
         self._set_ui_state(True)
-        self.status_label.configure(text="Undoing...", text_color="#FFD60A")
+        self.after(0, lambda: self.status_label.configure(text="Undoing...", text_color="#FFD60A"))
         threading.Thread(target=self._undo_thread, daemon=True).start()
 
     def _undo_thread(self):
         try:
             restored = self.organizer.undo_last_organization(self._update_status)
-            self._log(f"\n[DONE] Restored {restored} files.")
+            self.after(0, lambda: self._log(f"\n[DONE] Restored {restored} files."))
             self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=ACCENT_GREEN))
             self.after(0, lambda: self._set_ui_state(False))
             self.after(0, lambda: self.ledger_status.configure(text=f"Pending: {self.organizer.ledger.get_pending_count()}"))
             self.after(0, lambda: self.undo_btn.configure(state="disabled"))
         except Exception as e:
-            self._log(f"[ERROR] Undo failed: {e}")
+            err = str(e)
+            self.after(0, lambda: self._log(f"[ERROR] Undo failed: {err}"))
             self.after(0, lambda: self._set_ui_state(False))
 
 
