@@ -3,17 +3,24 @@ import sys
 import shutil
 import subprocess
 import platform
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-import threading
-import io
 import json
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-# --- Logging Configuration ---
+import tkinter as tk
+from tkinter import filedialog
+import customtkinter as ctk
+
+ctk.set_appearance_mode("Dark")
+ctk.set_default_color_theme("blue")
+
+IS_MACOS = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
+
+# --- Logging ---
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -28,12 +35,20 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
 logger = setup_logging()
 
-IS_MACOS = platform.system() == "Darwin"
-IS_LINUX = platform.system() == "Linux"
+# --- Font Paths ---
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+GEIST_DIR = os.path.join(SCRIPT_DIR, "Geist")
+GEIST_FONT = os.path.join(GEIST_DIR, "Geist-VariableFont_wght.ttf")
+GEIST_BOLD = os.path.join(GEIST_DIR, "static", "Geist-Bold.ttf")
+GEIST_MEDIUM = os.path.join(GEIST_DIR, "static", "Geist-Medium.ttf")
+GEIST_REGULAR = os.path.join(GEIST_DIR, "static", "Geist-Regular.ttf")
+GEIST_MONO = os.path.join(GEIST_DIR, "static", "Geist-Regular.ttf")
 
-# --- Nautilus / File Manager Integration ---
+ICON_PATH = os.path.join(SCRIPT_DIR, "BoBnox-icon", "Bobnox-icon.png")
+SVG_PATH = os.path.join(SCRIPT_DIR, "assets", "Sort--Streamline-Solar.svg")
+
+# --- File Manager Integration ---
 def open_in_file_manager(path: str):
-    """Open a folder in the system file manager (Nautilus on Linux, Finder on macOS)."""
     try:
         if IS_MACOS:
             subprocess.Popen(["open", path])
@@ -45,14 +60,13 @@ def open_in_file_manager(path: str):
         try:
             subprocess.Popen(["xdg-open", path])
         except FileNotFoundError:
-            logger.warning("No file manager found to open path")
+            logger.warning("No file manager found")
 
-def select_folder_via_nautilus() -> Optional[str]:
-    """Use Nautilus (Linux) or Finder (macOS) to select a folder via portal dialog."""
+def select_folder_native() -> Optional[str]:
     if IS_LINUX:
         try:
             result = subprocess.run(
-                ["zenity", "--file-selection", "--directory", "--title=Select Folder to Organize"],
+                ["zenity", "--file-selection", "--directory", "--title=Select Folder"],
                 capture_output=True, text=True, timeout=60
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -62,7 +76,7 @@ def select_folder_via_nautilus() -> Optional[str]:
     if IS_MACOS:
         try:
             result = subprocess.run(
-                ["osascript", "-e", 'tell application "Finder" to set folderPath to POSIX path of (choose folder)'],
+                ["osascript", "-e", 'tell application "Finder" to set p to POSIX path of (choose folder)'],
                 capture_output=True, text=True, timeout=60
             )
             if result.returncode == 0 and result.stdout.strip():
@@ -119,7 +133,6 @@ def save_config(config: dict) -> bool:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
-        logger.info("Configuration saved successfully")
         return True
     except Exception as e:
         logger.error(f"Failed to save config: {e}")
@@ -131,8 +144,8 @@ def load_undo_history() -> list:
         try:
             with open(HISTORY_FILE, 'r') as f:
                 return json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to load undo history: {e}")
+        except Exception:
+            pass
     return []
 
 
@@ -142,21 +155,11 @@ def save_undo_history(history: list) -> bool:
         with open(HISTORY_FILE, 'w') as f:
             json.dump(history, f, indent=2)
         return True
-    except Exception as e:
-        logger.error(f"Failed to save undo history: {e}")
+    except Exception:
         return False
 
 
-HAS_SVG_SUPPORT = False
-try:
-    import cairosvg
-    from PIL import Image, ImageTk
-    HAS_SVG_SUPPORT = True
-except Exception:
-    HAS_SVG_SUPPORT = False
-
-
-# --- 1. CORE LOGIC CLASS ---
+# --- File Organizer Core ---
 class FileOrganizer:
 
     def __init__(self, config: Optional[dict] = None):
@@ -180,259 +183,126 @@ class FileOrganizer:
             raise FileNotFoundError("The selected path is not a valid directory.")
 
         directory = Path(directory_path)
-        logger.info(f"Organizing directory: {directory_path} (dry_run={dry_run})")
+        logger.info(f"Organizing: {directory_path} (dry_run={dry_run})")
 
         if self.organize_subdirectories:
-            files_to_move = [
-                f for f in directory.rglob('*')
-                if f.is_file() and f.name != os.path.basename(__file__)
-            ]
+            files_to_move = [f for f in directory.rglob('*') if f.is_file() and f.name != os.path.basename(__file__)]
         else:
-            files_to_move = [
-                f for f in directory.iterdir()
-                if f.is_file() and f.name != os.path.basename(__file__)
-            ]
+            files_to_move = [f for f in directory.iterdir() if f.is_file() and f.name != os.path.basename(__file__)]
 
-        total_files = len(files_to_move)
-        files_moved = 0
+        total = len(files_to_move)
+        moved = 0
 
-        if total_files == 0:
+        if total == 0:
             status_callback("No files to organize.", 1.0)
             return 0
 
         self._move_history.clear()
 
-        for i, file_path in enumerate(files_to_move):
-            relative_path = file_path.relative_to(directory)
-            file_extension = file_path.suffix.lower()
+        for i, fp in enumerate(files_to_move):
+            rel = fp.relative_to(directory)
+            ext = fp.suffix.lower()
+            folder_name = self.extension_map.get(ext, f"{ext[1:].upper()} Files" if ext else "Other Files")
+            dest = directory / folder_name
 
-            if file_extension in self.extension_map:
-                folder_name = self.extension_map[file_extension]
-            else:
-                folder_name = f"{file_extension[1:].upper()} Files" if file_extension else "Other Files"
+            if not dry_run and not dest.exists():
+                dest.mkdir(parents=True, exist_ok=True)
 
-            dest_folder_path = directory / folder_name
-
-            if not dry_run and not dest_folder_path.exists():
-                dest_folder_path.mkdir(parents=True, exist_ok=True)
-                logger.debug(f"Created directory: {dest_folder_path}")
-
-            original_name = file_path.name
-            base_name, ext = os.path.splitext(original_name)
+            base, e = os.path.splitext(fp.name)
             counter = 1
-            destination_path = dest_folder_path / original_name
-
-            while destination_path.exists():
-                new_name = f"{base_name} ({counter}){ext}"
-                destination_path = dest_folder_path / new_name
+            dest_path = dest / fp.name
+            while dest_path.exists():
+                dest_path = dest / f"{base} ({counter}){e}"
                 counter += 1
 
             if not dry_run:
                 try:
-                    shutil.move(str(file_path), str(destination_path))
-                    self._move_history.append((destination_path, file_path))
-                    files_moved += 1
-                    logger.info(f"Moved: {relative_path} -> {folder_name}")
-                except Exception as e:
-                    logger.error(f"Failed to move {original_name}: {e}")
-                    status_callback(f"Failed to move {original_name}: {e}", (i + 1) / total_files)
+                    shutil.move(str(fp), str(dest_path))
+                    self._move_history.append((dest_path, fp))
+                    moved += 1
+                except Exception as ex:
+                    logger.error(f"Failed to move {fp.name}: {ex}")
                     continue
             else:
-                files_moved += 1
-                logger.info(f"[DRY RUN] Would move: {relative_path} -> {folder_name}")
+                moved += 1
 
-            progress_percent = (i + 1) / total_files
+            pct = (i + 1) / total
             action = "Would move" if dry_run else "Moving"
-            status_message = f"{action} ({i + 1}/{total_files}): {relative_path} -> {folder_name}"
-            status_callback(status_message, progress_percent)
+            status_callback(f"{action} ({i + 1}/{total}): {rel} -> {folder_name}", pct)
 
         if not dry_run and self._move_history:
             self._save_persistent_history()
 
-        return files_moved
+        return moved
 
     def undo_last_organization(self, status_callback) -> int:
         if not self._move_history:
             status_callback("Nothing to undo.", 1.0)
             return 0
 
-        logger.info(f"Undoing last organization ({len(self._move_history)} files)")
         total = len(self._move_history)
         restored = 0
 
-        for i, (current_path, original_path) in enumerate(self._move_history):
-            if current_path.exists():
-                original_path.parent.mkdir(parents=True, exist_ok=True)
+        for i, (cur, orig) in enumerate(self._move_history):
+            if cur.exists():
+                orig.parent.mkdir(parents=True, exist_ok=True)
                 try:
-                    shutil.move(str(current_path), str(original_path))
+                    shutil.move(str(cur), str(orig))
                     restored += 1
-                    logger.info(f"Restored: {current_path.name} -> {original_path.parent}")
-                except Exception as e:
-                    logger.error(f"Failed to restore {current_path.name}: {e}")
-                    status_callback(f"Failed to restore {current_path.name}: {e}", (i + 1) / total)
-            progress = (i + 1) / total
-            status_callback(f"Restoring ({i + 1}/{total}): {current_path.name}", progress)
+                except Exception as ex:
+                    logger.error(f"Failed to restore {cur.name}: {ex}")
+            status_callback(f"Restoring ({i + 1}/{total}): {cur.name}", (i + 1) / total)
 
         self._move_history.clear()
         self._save_persistent_history()
         return restored
 
 
-# --- Rounded Button Widget ---
-class RoundedButton(tk.Canvas):
-    """A button with rounded corners, mimicking macOS aqua style."""
+# --- Settings Dialog ---
+class SettingsDialog(ctk.CTkToplevel):
 
-    def __init__(self, parent, text, command=None, width=120, height=36,
-                 bg="#FFFFFF", fg="#1D1D1F", hover_bg="#E8E8ED",
-                 active_bg="#D2D2D7", radius=8, font=("Inter", 11, "bold"), **kwargs):
-        try:
-            parent_bg = parent.cget("bg")
-        except Exception:
-            try:
-                parent_bg = parent.cget("background")
-            except Exception:
-                parent_bg = "#F5F5F7"
-        super().__init__(parent, width=width, height=height, highlightthickness=0,
-                         bg=parent_bg, **kwargs)
-        self.command = command
-        self.bg = bg
-        self.fg = fg
-        self.hover_bg = hover_bg
-        self.active_bg = active_bg
-        self.radius = radius
-        self.width = width
-        self.height = height
-        self.text = text
-        self.font = font
-        self._state = "normal"
-
-        self._draw()
-
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
-        self.bind("<ButtonPress-1>", self._on_press)
-        self.bind("<ButtonRelease-1>", self._on_release)
-
-    def _rounded_rect(self, x1, y1, x2, y2, r, **kwargs):
-        points = [
-            x1+r, y1, x2-r, y1, x2, y1, x2, y1+r,
-            x2, y2-r, x2, y2, x2-r, y2, x1+r, y2,
-            x1, y2, x1, y2-r, x1, y1+r, x1, y1
-        ]
-        return self.create_polygon(points, smooth=True, **kwargs)
-
-    def _draw(self):
-        self.delete("all")
-        bg_color = self.bg
-        if self._state == "hover":
-            bg_color = self.hover_bg
-        elif self._state == "active":
-            bg_color = self.active_bg
-
-        self._rounded_rect(1, 1, self.width-1, self.height-1, self.radius, fill=bg_color, outline="#D2D2D7")
-        self.create_text(self.width//2, self.height//2, text=self.text, fill=self.fg, font=self.font)
-
-    def _on_enter(self, e):
-        if self._state != "disabled":
-            self._state = "hover"
-            self._draw()
-            self.configure(cursor="hand2")
-
-    def _on_leave(self, e):
-        if self._state != "disabled":
-            self._state = "normal"
-            self._draw()
-
-    def _on_press(self, e):
-        if self._state != "disabled":
-            self._state = "active"
-            self._draw()
-
-    def _on_release(self, e):
-        if self._state != "disabled":
-            self._state = "normal"
-            self._draw()
-            if self.command:
-                self.command()
-
-    def set_state(self, state):
-        self._state = state
-        if state == "disabled":
-            self.configure(cursor="")
-        self._draw()
-
-    def configure(self, **kwargs):
-        if "text" in kwargs:
-            self.text = kwargs.pop("text")
-        if "bg" in kwargs:
-            self.bg = kwargs.pop("bg")
-        if "fg" in kwargs:
-            self.fg = kwargs.pop("fg")
-        super().configure(**kwargs)
-        self._draw()
-
-    def cget(self, key):
-        if key == "text":
-            return self.text
-        return super().cget(key)
-
-
-class RoundedAccentButton(RoundedButton):
-    """Accent-colored rounded button (e.g., for primary actions)."""
-
-    def __init__(self, parent, text, command=None, width=140, height=40, **kwargs):
-        super().__init__(parent, text, command, width, height,
-                         bg="#007AFF", fg="#FFFFFF", hover_bg="#0056CC",
-                         active_bg="#004499", radius=10,
-                         font=("Inter", 12, "bold"), **kwargs)
-class SettingsDialog(tk.Toplevel):
-
-    def __init__(self, parent, config: dict, on_save_callback, theme_is_aqua: bool = False):
+    def __init__(self, parent, config: dict, on_save_callback):
         super().__init__(parent)
         self.config = config.copy()
         self.on_save = on_save_callback
-        self.theme_is_aqua = theme_is_aqua
         self.title("Settings")
-        self.geometry("500x600")
+        self.geometry("520x620")
+        self.configure(fg_color="#0D0D0D")
         self.resizable(False, False)
         self.grab_set()
-        self.configure(bg="#F5F5F7")
+
+        self.FONT_LABEL = ("Geist", 13)
+        self.FONT_TITLE = ("Geist", 18, "bold")
+        self.BG_CARD = "#1A1A1A"
+        self.TEXT_MAIN = "#FFFFFF"
+        self.TEXT_MUTED = "#8E8E93"
+        self.ACCENT = "#005CE6"
 
         self.extension_entries = {}
         self._create_widgets()
 
     def _create_widgets(self):
-        main_frame = ttk.Frame(self, padding="15")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        header = ctk.CTkLabel(self, text="Extension Mappings", font=self.FONT_TITLE, text_color=self.TEXT_MAIN)
+        header.pack(anchor="w", padx=20, pady=(20, 10))
 
-        ttk.Label(main_frame, text="Extension Mappings", font=("Inter", 14, "bold"),
-                  foreground="#007AFF").pack(pady=(0, 10))
+        scroll_frame = ctk.CTkScrollableFrame(self, fg_color="#0D0D0D", corner_radius=0)
+        scroll_frame.pack(fill="both", expand=True, padx=16, pady=(0, 10))
 
-        canvas = tk.Canvas(main_frame, bg="#FAFAFA", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        row = 0
         for ext, folder in sorted(self.config.get("extension_map", {}).items()):
-            ttk.Label(scrollable_frame, text=ext, font=("Inter", 11)).grid(
-                row=row, column=0, sticky="w", padx=(0, 10), pady=2)
-            entry = ttk.Entry(scrollable_frame, width=20)
-            entry.insert(0, folder)
-            entry.grid(row=row, column=1, sticky="ew", pady=2)
-            self.extension_entries[ext] = entry
-            row += 1
+            row = ctk.CTkFrame(scroll_frame, fg_color=self.BG_CARD, corner_radius=8)
+            row.pack(fill="x", pady=3)
 
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(pady=(15, 0))
-        ttk.Button(button_frame, text="Save", command=self._save).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="left", padx=5)
+            ctk.CTkLabel(row, text=ext, font=self.FONT_LABEL, text_color=self.TEXT_MUTED, width=80).pack(side="left", padx=(12, 8), pady=8)
+            entry = ctk.CTkEntry(row, font=self.FONT_LABEL, fg_color="#0D0D0D", border_color="#2C2C2E", text_color=self.TEXT_MAIN, corner_radius=6, height=32)
+            entry.insert(0, folder)
+            entry.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=8)
+            self.extension_entries[ext] = entry
+
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=16, pady=(0, 16))
+
+        ctk.CTkButton(btn_frame, text="Save", font=("Geist", 13, "bold"), fg_color=self.ACCENT, hover_color="#004BB3", height=38, corner_radius=8, command=self._save).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_frame, text="Cancel", font=("Geist", 13), fg_color="#2C2C2E", hover_color="#3A3A3C", text_color=self.TEXT_MAIN, height=38, corner_radius=8, command=self.destroy).pack(side="left")
 
     def _save(self):
         for ext, entry in self.extension_entries.items():
@@ -441,212 +311,207 @@ class SettingsDialog(tk.Toplevel):
         self.destroy()
 
 
-# --- 3. GUI APPLICATION CLASS ---
-class FileOrganizerApp(tk.Tk):
+# --- Main Application ---
+class BoBnoxApp(ctk.CTk):
 
     def __init__(self):
         super().__init__()
         self.config = load_config()
         self.organizer = FileOrganizer(self.config)
-        self.title("boBnox")
-        self.geometry("560x520")
-        self.minsize(480, 440)
-        self.path_var = tk.StringVar()
-        self.status_var = tk.StringVar(value="Ready. Select a folder to begin.")
-        self.dry_run_var = tk.BooleanVar(value=False)
-        self.recursive_var = tk.BooleanVar(value=self.config.get("organize_subdirectories", False))
         self.log_messages = []
-        self.theme_is_aqua = False
 
-        self._setup_theme()
-        self.create_widgets()
+        self.title("boBnox")
+        self.geometry("900x750")
+        self.configure(fg_color="#0D0D0D")
 
-    def _setup_theme(self):
-        style = ttk.Style(self)
-
-        if IS_MACOS:
+        # Set window icon
+        if os.path.exists(ICON_PATH):
             try:
-                style.theme_use('aqua')
-                self.theme_is_aqua = True
-            except Exception:
-                self.theme_is_aqua = False
-
-        if not self.theme_is_aqua:
-            try:
-                style.theme_use('clam')
+                self.after(100, lambda: self.iconphoto(False, tk.PhotoImage(file=ICON_PATH)))
             except Exception:
                 pass
 
-        # Light macOS-style colors
-        self.BG_MAIN = "#F5F5F7"
-        self.BG_CARD = "#FFFFFF"
-        self.BG_INPUT = "#FFFFFF"
-        self.BG_HOVER = "#E8E8ED"
-        self.FG_PRIMARY = "#1D1D1F"
-        self.FG_SECONDARY = "#86868B"
-        self.ACCENT_COLOR = "#007AFF"
-        self.ACCENT_HOVER = "#0056CC"
-        self.BORDER_COLOR = "#D2D2D7"
-        self.SUCCESS_COLOR = "#34C759"
-        self.WARNING_COLOR = "#FF9500"
-        self.ERROR_COLOR = "#FF3B30"
+        # Colors
+        self.BG_CARD = "#1A1A1A"
+        self.TEXT_MAIN = "#FFFFFF"
+        self.TEXT_MUTED = "#8E8E93"
+        self.ACCENT_BLUE = "#005CE6"
+        self.ACCENT_GREEN = "#22C85A"
+        self.ACCENT_CORAL = "#FF4F31"
 
-        self.configure(bg=self.BG_MAIN)
+        # Fonts
+        self.FONT_TITLE = ("Geist", 28, "bold")
+        self.FONT_SUBTITLE = ("Geist", 13)
+        self.FONT_LABEL = ("Geist", 14)
+        self.FONT_BUTTON = ("Geist", 13, "bold")
+        self.FONT_CONSOLE = ("Geist", 12)
 
-        style.configure("TFrame", background=self.BG_MAIN)
-        style.configure("Card.TFrame", background=self.BG_CARD, relief="flat")
-        style.configure("TLabel", background=self.BG_MAIN, foreground=self.FG_PRIMARY, font=("Inter", 12))
-        style.configure("Card.TLabel", background=self.BG_CARD, foreground=self.FG_PRIMARY, font=("Inter", 12))
-        style.configure("Title.TLabel", background=self.BG_MAIN, foreground=self.FG_PRIMARY, font=("Inter", 20, "bold"))
-        style.configure("Subtitle.TLabel", background=self.BG_MAIN, foreground=self.FG_SECONDARY, font=("Inter", 11))
-        style.configure("Status.TLabel", background=self.BG_MAIN, foreground=self.FG_SECONDARY, font=("Inter", 10))
-        style.configure("TEntry", font=("Inter", 11), padding=8)
-        style.configure("Accent.TButton", font=("Inter", 12, "bold"), padding=[16, 10], background=self.ACCENT_COLOR, foreground="#FFFFFF")
-        style.configure("TButton", font=("Inter", 11), padding=[12, 6], background=self.BG_CARD, foreground=self.FG_PRIMARY)
-        style.map("TButton", background=[('active', self.BG_HOVER), ('disabled', '#F5F5F5')])
-        style.map("Accent.TButton", background=[('active', self.ACCENT_HOVER), ('disabled', '#C7C7CC')])
-        style.configure("TProgressbar", troughcolor=self.BG_HOVER, background=self.ACCENT_COLOR, thickness=6)
-        style.configure("TCheckbutton", background=self.BG_MAIN, foreground=self.FG_PRIMARY, font=("Inter", 11))
-        style.map("TCheckbutton", background=[('active', self.BG_MAIN)])
+        # Variables
+        self.path_var = tk.StringVar()
+        self.dry_run_var = tk.BooleanVar(value=False)
+        self.recursive_var = tk.BooleanVar(value=self.config.get("organize_subdirectories", False))
 
-    def create_widgets(self):
-        main_frame = ttk.Frame(self, padding="24")
-        main_frame.pack(expand=True, fill=tk.BOTH)
-        main_frame.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=3)
+        self.grid_columnconfigure(1, weight=2)
+        self.grid_rowconfigure(3, weight=1)
 
-        # Title
-        ttk.Label(main_frame, text="boBnox", style="Title.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
-        ttk.Label(main_frame, text="Organize your files into categorized folders", style="Subtitle.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 20))
+        self._create_widgets()
 
-        # Path selection card
-        path_card = ttk.Frame(main_frame, style="Card.TFrame", padding="12")
-        path_card.grid(row=2, column=0, sticky="ew", pady=(0, 16))
-        path_card.grid_columnconfigure(0, weight=1)
+    def _create_widgets(self):
+        # --- CARD 1: Branding ---
+        brand_card = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=16)
+        brand_card.grid(row=0, column=0, padx=12, pady=12, sticky="nsew")
 
-        self.path_entry = ttk.Entry(path_card, textvariable=self.path_var, font=("Inter", 11))
-        self.path_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkLabel(brand_card, text="boBnox", text_color=self.TEXT_MAIN, font=self.FONT_TITLE).pack(anchor="w", padx=20, pady=(20, 4))
+        ctk.CTkLabel(brand_card, text="Organize your files into categorized folders", text_color=self.TEXT_MUTED, font=self.FONT_SUBTITLE).pack(anchor="w", padx=20, pady=(0, 16))
 
-        browse_frame = ttk.Frame(path_card, style="Card.TFrame")
-        browse_frame.grid(row=0, column=1)
+        # --- CARD 2: Options ---
+        config_card = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=16)
+        config_card.grid(row=0, column=1, padx=12, pady=12, sticky="nsew")
 
-        self.browse_button = RoundedButton(browse_frame, text="Browse", command=self.select_directory, width=80, height=32, radius=6)
-        self.browse_button.pack(side="left")
+        ctk.CTkLabel(config_card, text="Options", text_color=self.TEXT_MUTED, font=self.FONT_SUBTITLE).pack(anchor="w", padx=20, pady=(16, 8))
 
-        self.nautilus_button = RoundedButton(browse_frame, text="Nautilus", command=self.select_via_nautilus, width=80, height=32, radius=6)
-        self.nautilus_button.pack(side="left", padx=(4, 0))
+        self.dry_run_check = ctk.CTkCheckBox(config_card, text="Dry Run (Preview only)", variable=self.dry_run_var, font=self.FONT_LABEL, text_color=self.TEXT_MAIN, hover_color=self.ACCENT_BLUE, fg_color=self.ACCENT_BLUE)
+        self.dry_run_check.pack(anchor="w", padx=20, pady=6)
 
-        # Options card
-        options_card = ttk.Frame(main_frame, style="Card.TFrame", padding="12")
-        options_card.grid(row=3, column=0, sticky="ew", pady=(0, 16))
-        options_card.grid_columnconfigure(0, weight=1)
+        self.recursive_check = ctk.CTkCheckBox(config_card, text="Include Subdirectories", variable=self.recursive_var, font=self.FONT_LABEL, text_color=self.TEXT_MAIN, hover_color=self.ACCENT_BLUE, fg_color=self.ACCENT_BLUE, command=self._on_recursive_toggle)
+        self.recursive_check.pack(anchor="w", padx=20, pady=6)
 
-        self.dry_run_check = ttk.Checkbutton(options_card, text="Dry Run (Preview only)", variable=self.dry_run_var)
-        self.dry_run_check.grid(row=0, column=0, sticky="w", padx=(0, 20))
+        # --- CARD 3: Path Selection ---
+        path_card = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=16)
+        path_card.grid(row=1, column=0, columnspan=2, padx=12, pady=12, sticky="nsew")
 
-        self.recursive_check = ttk.Checkbutton(options_card, text="Include Subdirectories", variable=self.recursive_var, command=self._on_recursive_toggle)
-        self.recursive_check.grid(row=0, column=1, sticky="w")
+        ctk.CTkLabel(path_card, text="Target Directory", text_color=self.TEXT_MUTED, font=self.FONT_SUBTITLE).pack(anchor="w", padx=20, pady=(12, 4))
 
-        # Organize button (accent)
-        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
-        svg_path = os.path.join(assets_dir, 'Sort--Streamline-Solar.svg')
+        path_frame = ctk.CTkFrame(path_card, fg_color="transparent")
+        path_frame.pack(fill="x", padx=16, pady=(0, 16))
 
-        self.organize_img = None
-        if HAS_SVG_SUPPORT and os.path.exists(svg_path):
+        self.path_entry = ctk.CTkEntry(path_frame, placeholder_text="Select a directory to begin...", fg_color="#0D0D0D", border_color="#2C2C2E", text_color=self.TEXT_MAIN, font=self.FONT_CONSOLE, height=40, corner_radius=8, textvariable=self.path_var)
+        self.path_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+
+        # Browse button with icon
+        if os.path.exists(ICON_PATH):
             try:
-                png_bytes = cairosvg.svg2png(url=svg_path, output_width=48, output_height=48)
-                img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
-                self.organize_img = ImageTk.PhotoImage(img)
-                self.organize_button = tk.Button(main_frame, image=self.organize_img, command=self.start_organizing_thread, bd=0, highlightthickness=0, relief='flat', cursor='hand2', bg=self.BG_MAIN, activebackground=self.BG_MAIN)
+                self._browse_icon = ctk.CTkImage(light_image=None, dark_image=None, size=(20, 20))
+                from PIL import Image
+                img = Image.open(ICON_PATH).resize((20, 20), Image.Resampling.LANCZOS)
+                self._browse_icon = ctk.CTkImage(light_image=img, dark_image=img, size=(20, 20))
+                self.browse_btn = ctk.CTkButton(path_frame, text=" Browse", image=self._browse_icon, font=self.FONT_BUTTON, fg_color=self.ACCENT_BLUE, hover_color="#004BB3", height=40, width=110, corner_radius=8, command=self._select_directory)
             except Exception:
-                self.organize_button = RoundedAccentButton(main_frame, text="Organize", command=self.start_organizing_thread, width=160, height=44)
+                self.browse_btn = ctk.CTkButton(path_frame, text="Browse", font=self.FONT_BUTTON, fg_color=self.ACCENT_BLUE, hover_color="#004BB3", height=40, width=100, corner_radius=8, command=self._select_directory)
         else:
-            self.organize_button = RoundedAccentButton(main_frame, text="Organize", command=self.start_organizing_thread, width=160, height=44)
+            self.browse_btn = ctk.CTkButton(path_frame, text="Browse", font=self.FONT_BUTTON, fg_color=self.ACCENT_BLUE, hover_color="#004BB3", height=40, width=100, corner_radius=8, command=self._select_directory)
+        self.browse_btn.pack(side="left")
 
-        self.organize_button.grid(row=4, column=0, pady=(8, 16))
+        # --- CARD 4: Actions ---
+        actions_card = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=16)
+        actions_card.grid(row=2, column=0, columnspan=2, padx=12, pady=12, sticky="nsew")
 
-        # Secondary buttons
-        secondary_frame = ttk.Frame(main_frame, style="Card.TFrame", padding="8")
-        secondary_frame.grid(row=5, column=0, sticky="ew", pady=(0, 12))
-        secondary_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        actions_inner = ctk.CTkFrame(actions_card, fg_color="transparent")
+        actions_inner.pack(pady=12, padx=16, fill="x")
 
-        self.undo_button = RoundedButton(secondary_frame, text="Undo", command=self.undo_last_action, width=80, height=32, radius=6)
-        self.undo_button.grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        self.undo_button.set_state("disabled")
+        # Organize button with SVG icon
+        self.organize_img = None
+        if os.path.exists(SVG_PATH):
+            try:
+                import cairosvg
+                from PIL import Image as PILImage
+                png_data = cairosvg.svg2png(url=SVG_PATH, output_width=24, output_height=24)
+                img = PILImage.open(__import__('io').BytesIO(png_data)).convert('RGBA')
+                self.organize_img = ctk.CTkImage(light_image=img, dark_image=img, size=(24, 24))
+            except Exception:
+                pass
 
-        self.settings_button = RoundedButton(secondary_frame, text="Settings", command=self.open_settings, width=80, height=32, radius=6)
-        self.settings_button.grid(row=0, column=1, sticky="ew", padx=4)
+        organize_kwargs = dict(
+            text=" Organize" if self.organize_img else "Organize",
+            font=self.FONT_BUTTON,
+            fg_color=self.ACCENT_GREEN,
+            hover_color="#1AAE4D",
+            text_color="#FFFFFF",
+            height=40,
+            corner_radius=10,
+            command=self._start_organizing
+        )
+        if self.organize_img:
+            organize_kwargs["image"] = self.organize_img
+        self.organize_btn = ctk.CTkButton(actions_inner, **organize_kwargs)
+        self.organize_btn.pack(side="left", padx=(0, 10))
 
-        self.open_folder_button = RoundedButton(secondary_frame, text="Open Folder", command=self.open_organized_folder, width=100, height=32, radius=6)
-        self.open_folder_button.grid(row=0, column=2, sticky="ew", padx=4)
+        self.undo_btn = ctk.CTkButton(actions_inner, text="Undo", font=self.FONT_BUTTON, fg_color="#2C2C2E", hover_color="#3A3A3C", text_color=self.TEXT_MAIN, height=40, corner_radius=8, command=self._undo_action, state="disabled")
+        self.undo_btn.pack(side="left", padx=(0, 10))
 
-        self.clear_log_button = RoundedButton(secondary_frame, text="Clear", command=self.clear_log, width=60, height=32, radius=6)
-        self.clear_log_button.grid(row=0, column=3, sticky="ew", padx=(4, 0))
+        self.settings_btn = ctk.CTkButton(actions_inner, text="Settings", font=self.FONT_BUTTON, fg_color="#2C2C2E", hover_color="#3A3A3C", text_color=self.TEXT_MAIN, height=40, corner_radius=8, command=self._open_settings)
+        self.settings_btn.pack(side="left", padx=(0, 10))
 
-        # Progress bar
-        self.progress_bar = ttk.Progressbar(main_frame, orient="horizontal", mode="determinate")
-        self.progress_bar.grid(row=6, column=0, sticky="ew", pady=(0, 8))
+        self.open_folder_btn = ctk.CTkButton(actions_inner, text="Open Folder", font=self.FONT_BUTTON, fg_color="#2C2C2E", hover_color="#3A3A3C", text_color=self.TEXT_MAIN, height=40, corner_radius=8, command=self._open_folder)
+        self.open_folder_btn.pack(side="left", padx=(0, 10))
 
-        # Status
-        self.status_label = ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel")
-        self.status_label.grid(row=7, column=0, sticky="w")
+        self.clear_btn = ctk.CTkButton(actions_inner, text="Clear Console", font=self.FONT_BUTTON, fg_color="transparent", hover_color="#2C2C2E", text_color=self.ACCENT_CORAL, border_color=self.ACCENT_CORAL, border_width=1, height=40, corner_radius=8, command=self._clear_log)
+        self.clear_btn.pack(side="right")
 
-        # Log display
-        log_frame = ttk.Frame(main_frame, style="Card.TFrame", padding="8")
-        log_frame.grid(row=8, column=0, sticky="nsew", pady=(12, 0))
-        log_frame.grid_columnconfigure(0, weight=1)
-        log_frame.grid_rowconfigure(0, weight=1)
-        main_frame.grid_rowconfigure(8, weight=1)
+        # --- CARD 5: Terminal & Status ---
+        terminal_card = ctk.CTkFrame(self, fg_color=self.BG_CARD, corner_radius=16)
+        terminal_card.grid(row=3, column=0, columnspan=2, padx=12, pady=(12, 20), sticky="nsew")
+        terminal_card.grid_rowconfigure(2, weight=1)
+        terminal_card.grid_columnconfigure(0, weight=1)
 
-        self.log_text = tk.Text(log_frame, height=8, bg="#FAFAFA", fg=self.FG_PRIMARY, font=("Menlo" if IS_MACOS else "Consolas", 10), relief='flat', bd=0, wrap='word', state='disabled', highlightthickness=0)
-        self.log_text.grid(row=0, column=0, sticky="nsew")
+        status_frame = ctk.CTkFrame(terminal_card, fg_color="transparent")
+        status_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(15, 5))
 
-        log_scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
-        log_scrollbar.grid(row=0, column=1, sticky="ns")
-        self.log_text.configure(yscrollcommand=log_scrollbar.set)
+        self.status_label = ctk.CTkLabel(status_frame, text="System Ready", text_color=self.ACCENT_GREEN, font=self.FONT_SUBTITLE)
+        self.status_label.pack(side="left")
 
-    def _create_text_button(self, parent):
-        return RoundedAccentButton(parent, text="Organize", command=self.start_organizing_thread, width=160, height=44)
+        self.progress_bar = ctk.CTkProgressBar(terminal_card, height=4, fg_color="#2C2C2E", progress_color=self.ACCENT_BLUE, corner_radius=2)
+        self.progress_bar.grid(row=1, column=0, sticky="ew", padx=20, pady=5)
+        self.progress_bar.set(0.0)
 
-    def select_directory(self):
-        path = filedialog.askdirectory()
+        self.console = ctk.CTkTextbox(terminal_card, fg_color="#0D0D0D", text_color="#A9A9B2", font=self.FONT_CONSOLE, corner_radius=8, border_color="#2C2C2E", border_width=1)
+        self.console.grid(row=2, column=0, sticky="nsew", padx=16, pady=(10, 16))
+        self.console.insert("end", "[INFO] Application initialized.\n[INFO] Awaiting target directory selection...\n")
+        self.console.configure(state="disabled")
+
+    # --- Actions ---
+    def _log(self, msg: str):
+        self.log_messages.append(msg)
+        self.console.configure(state="normal")
+        self.console.insert("end", msg + "\n")
+        self.console.see("end")
+        self.console.configure(state="disabled")
+
+    def _clear_log(self):
+        self.log_messages.clear()
+        self.console.configure(state="normal")
+        self.console.delete("1.0", "end")
+        self.console.insert("end", "[INFO] Console cleared.\n")
+        self.console.configure(state="disabled")
+
+    def _select_directory(self):
+        path = select_folder_native()
+        if not path:
+            try:
+                path = filedialog.askdirectory()
+            except Exception:
+                pass
         if path:
             self.path_var.set(path)
-
-    def select_via_nautilus(self):
-        """Open Nautilus/Finder folder picker."""
-        path = select_folder_via_nautilus()
-        if path:
-            self.path_var.set(path)
-
-    def open_organized_folder(self):
-        """Open the selected folder in Nautilus/Finder."""
-        path = self.path_var.get()
-        if path and os.path.isdir(path):
-            open_in_file_manager(path)
-        else:
-            messagebox.showwarning("Warning", "Please select a valid folder first.")
+            self._log(f"[INFO] Directory selected: {path}")
 
     def _on_recursive_toggle(self):
         self.config["organize_subdirectories"] = self.recursive_var.get()
         self.organizer.organize_subdirectories = self.recursive_var.get()
         save_config(self.config)
 
-    def _log_to_ui(self, message: str):
-        self.log_text.config(state='normal')
-        self.log_text.insert(tk.END, message + "\n")
-        self.log_text.see(tk.END)
-        self.log_text.config(state='disabled')
+    def _open_folder(self):
+        path = self.path_var.get()
+        if path and os.path.isdir(path):
+            open_in_file_manager(path)
+        else:
+            self._log("[WARN] Select a valid folder first.")
 
-    def clear_log(self):
-        self.log_text.config(state='normal')
-        self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state='disabled')
-        self.log_messages.clear()
+    def _open_settings(self):
+        SettingsDialog(self, self.config, self._on_settings_save)
 
-    def open_settings(self):
-        SettingsDialog(self, self.config, self.on_settings_save, self.theme_is_aqua)
-
-    def on_settings_save(self, new_config: dict):
+    def _on_settings_save(self, new_config: dict):
         self.config = new_config
         self.organizer.config = new_config
         self.organizer.extension_map = new_config.get("extension_map", DEFAULT_CONFIG["extension_map"])
@@ -654,146 +519,98 @@ class FileOrganizerApp(tk.Tk):
         self.organizer.create_log_file = new_config.get("create_log_file", True)
         self.recursive_var.set(self.organizer.organize_subdirectories)
         save_config(new_config)
-        messagebox.showinfo("Settings", "Settings saved successfully!")
-
-    def start_organizing_thread(self):
-        directory_path = self.path_var.get()
-        if not os.path.isdir(directory_path):
-            messagebox.showerror("Error", "Please select a valid directory first.")
-            return
-
-        self._set_ui_state(disabled=True)
-        self.status_var.set("Processing... Please wait.")
-        self.progress_bar['value'] = 0
-        self.clear_log()
-
-        self.log_messages = []
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.log_messages.append(f"=== Organization started at {timestamp} ===")
-        self.log_messages.append(f"Directory: {directory_path}")
-        self.log_messages.append(f"Mode: {'Dry Run' if self.dry_run_var.get() else 'Live'}")
-        self.log_messages.append(f"Recursive: {self.recursive_var.get()}")
-        self.log_messages.append("")
-
-        self.thread = threading.Thread(target=self.organize_action, args=(directory_path, self.dry_run_var.get()), daemon=True)
-        self.thread.start()
-
-    def undo_last_action(self):
-        if not self.organizer._move_history:
-            messagebox.showinfo("Undo", "Nothing to undo.")
-            return
-
-        if not messagebox.askyesno("Confirm Undo", "Restore all moved files to their original locations?"):
-            return
-
-        self._set_ui_state(disabled=True)
-        self.status_var.set("Undoing... Please wait.")
-        self.progress_bar['value'] = 0
-
-        self.thread = threading.Thread(target=self.undo_action, daemon=True)
-        self.thread.start()
-
-    def undo_action(self):
-        try:
-            restored = self.organizer.undo_last_organization(self.update_status)
-            if restored > 0:
-                final_message = f"Undo complete! Restored {restored} files."
-            else:
-                final_message = "Nothing to restore."
-            self.after(0, lambda: messagebox.showinfo("Undo Complete", final_message))
-            self.after(0, self.reset_ui)
-        except Exception as e:
-            err = str(e)
-            self.after(0, lambda: messagebox.showerror("Error", f"Undo failed: {err}"))
-            self.after(0, self.reset_ui)
-
-    def update_status(self, message, progress_value):
-        try:
-            self.after(0, lambda: self._update_status_ui(message, progress_value))
-        except Exception:
-            self._update_status_ui(message, progress_value)
-
-    def _update_status_ui(self, message, progress_value):
-        self.status_var.set(message)
-        try:
-            self.progress_bar['value'] = progress_value * 100
-        except Exception:
-            pass
-        self.log_messages.append(message)
-        self._log_to_ui(message)
-        self.update_idletasks()
-
-    def organize_action(self, directory_path, dry_run: bool):
-        try:
-            self.organizer.organize_subdirectories = self.recursive_var.get()
-            files_moved = self.organizer.organize_directory(directory_path, self.update_status, dry_run=dry_run)
-
-            if dry_run:
-                final_message = f"Preview complete! {files_moved} files would be moved." if files_moved > 0 else "No files to move, directory is already tidy."
-            else:
-                final_message = f"Organization complete! Moved {files_moved} files." if files_moved > 0 else "No files to move, directory is already tidy."
-
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_messages.append("")
-            self.log_messages.append(f"=== Organization completed at {timestamp} ===")
-            self.log_messages.append(f"Files {'would be moved' if dry_run else 'moved'}: {files_moved}")
-
-            if not dry_run and self.organizer.create_log_file:
-                self._save_log_file(directory_path)
-
-            self.after(0, lambda: messagebox.showinfo("Success", final_message))
-            self.after(0, lambda: self.undo_button.config(state='normal' if files_moved > 0 and not dry_run else 'disabled'))
-            self.after(0, self.reset_ui)
-
-        except FileNotFoundError as e:
-            err = str(e)
-            self.log_messages.append(f"ERROR: {err}")
-            if self.organizer.create_log_file:
-                self._save_log_file(directory_path)
-            self.after(0, lambda: messagebox.showerror("Error", err))
-            self.after(0, self.reset_ui)
-        except Exception as e:
-            err = str(e)
-            self.log_messages.append(f"ERROR: {err}")
-            if self.organizer.create_log_file:
-                self._save_log_file(directory_path)
-            self.after(0, lambda: messagebox.showerror("Error", f"An unexpected error occurred: {err}"))
-            self.after(0, self.reset_ui)
-
-    def _save_log_file(self, directory_path):
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            log_filename = f"bobnox-log-{timestamp}.txt"
-            log_path = os.path.join(directory_path, log_filename)
-            with open(log_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(self.log_messages))
-            self._log_to_ui(f"Log saved to: {log_filename}")
-            logger.info(f"Log saved to: {log_path}")
-        except Exception as e:
-            logger.error(f"Failed to save log file: {e}")
+        self._log("[INFO] Settings saved successfully.")
 
     def _set_ui_state(self, disabled: bool):
         state = "disabled" if disabled else "normal"
-        self.organize_button.set_state(state)
-        self.path_entry.config(state=state)
-        self.dry_run_check.config(state=state)
-        self.recursive_check.config(state=state)
-        self.settings_button.set_state(state)
-        self.open_folder_button.set_state(state)
-        self.browse_button.set_state(state)
-        self.nautilus_button.set_state(state)
-        self.clear_log_button.set_state(state)
-        if not disabled:
-            undo_state = "normal" if self.organizer._move_history else "disabled"
-            self.undo_button.set_state(undo_state)
+        self.organize_btn.configure(state=state)
+        self.undo_btn.configure(state=state)
+        self.settings_btn.configure(state=state)
+        self.open_folder_btn.configure(state=state)
+        self.browse_btn.configure(state=state)
+        self.dry_run_check.configure(state=state)
+        self.recursive_check.configure(state=state)
+        self.path_entry.configure(state=state)
 
-    def reset_ui(self):
-        self._set_ui_state(disabled=False)
-        self.path_var.set("")
-        self.status_var.set("Ready. Select a folder to begin.")
-        self.progress_bar['value'] = 0
+    def _start_organizing(self):
+        path = self.path_var.get()
+        if not path or not os.path.isdir(path):
+            self._log("[ERROR] Please select a valid directory first.")
+            return
+
+        self._set_ui_state(True)
+        self.status_label.configure(text="Processing...", text_color="#FFD60A")
+        self.progress_bar.set(0.0)
+        self._clear_log()
+        self._log(f"[INFO] Starting organization: {path}")
+        self._log(f"[INFO] Mode: {'Dry Run' if self.dry_run_var.get() else 'Live'}")
+        self._log(f"[INFO] Recursive: {self.recursive_var.get()}")
+
+        threading.Thread(target=self._organize_thread, args=(path, self.dry_run_var.get()), daemon=True).start()
+
+    def _organize_thread(self, path: str, dry_run: bool):
+        try:
+            self.organizer.organize_subdirectories = self.recursive_var.get()
+            moved = self.organizer.organize_directory(path, self._update_status, dry_run=dry_run)
+
+            if dry_run:
+                msg = f"Preview complete! {moved} files would be moved." if moved else "No files to move."
+            else:
+                msg = f"Organization complete! Moved {moved} files." if moved else "No files to move."
+
+            self._log(f"\n[DONE] {msg}")
+
+            if not dry_run and self.organizer.create_log_file:
+                self._save_log_file(path)
+
+            self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=self.ACCENT_GREEN))
+            self.after(0, lambda: self.undo_btn.configure(state="normal" if moved > 0 and not dry_run else "disabled"))
+            self.after(0, lambda: self._set_ui_state(False))
+
+        except Exception as e:
+            self._log(f"[ERROR] {e}")
+            self.after(0, lambda: self.status_label.configure(text="Error", text_color=self.ACCENT_CORAL))
+            self.after(0, lambda: self._set_ui_state(False))
+
+    def _update_status(self, message: str, progress: float):
+        self.after(0, lambda: self._do_update_status(message, progress))
+
+    def _do_update_status(self, message: str, progress: float):
+        self.status_label.configure(text=message, text_color=self.TEXT_MAIN)
+        self.progress_bar.set(progress)
+        self._log(f"  {message}")
+
+    def _undo_action(self):
+        if not self.organizer._move_history:
+            self._log("[INFO] Nothing to undo.")
+            return
+
+        self._set_ui_state(True)
+        self.status_label.configure(text="Undoing...", text_color="#FFD60A")
+        threading.Thread(target=self._undo_thread, daemon=True).start()
+
+    def _undo_thread(self):
+        try:
+            restored = self.organizer.undo_last_organization(self._update_status)
+            self._log(f"\n[DONE] Undo complete! Restored {restored} files.")
+            self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=self.ACCENT_GREEN))
+            self.after(0, lambda: self._set_ui_state(False))
+            self.after(0, lambda: self.undo_btn.configure(state="disabled"))
+        except Exception as e:
+            self._log(f"[ERROR] Undo failed: {e}")
+            self.after(0, lambda: self._set_ui_state(False))
+
+    def _save_log_file(self, directory_path):
+        try:
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            log_path = os.path.join(directory_path, f"bobnox-log-{ts}.txt")
+            with open(log_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(self.log_messages))
+            self._log(f"[INFO] Log saved: {log_path}")
+        except Exception as e:
+            logger.error(f"Failed to save log: {e}")
 
 
 if __name__ == "__main__":
-    app = FileOrganizerApp()
+    app = BoBnoxApp()
     app.mainloop()
