@@ -1035,12 +1035,12 @@ class BoBnoxApp(ctk.CTk):
     def _create_widgets(self):
         gf = "Geist" if geist_available() else ("Helvetica" if IS_MACOS else "Sans")
 
-        # SIDEBAR
-        sidebar = ctk.CTkFrame(self, corner_radius=APP_RADIUS, fg_color=self.C_CARD, bg_color=self.C_BG)
+        # SIDEBAR (flat corners - no notch artifact)
+        sidebar = ctk.CTkFrame(self, corner_radius=0, fg_color=self.C_CARD, bg_color=self.C_BG)
         sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew", padx=12, pady=12)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(anchor="w", padx=20, pady=(24, 4))
-        ctk.CTkLabel(sidebar, text="v4.0.0 - macOS Engine", font=(gf, 11), text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
+        ctk.CTkLabel(sidebar, text="v4.0.0", font=(gf, 11), text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
 
         self.theme_switch = ctk.CTkSwitch(sidebar, text="Dark Mode", command=self._toggle_theme, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
