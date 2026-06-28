@@ -1043,7 +1043,7 @@ class BoBnoxApp(ctk.CTk):
         ctk.CTkLabel(sidebar, text="v4.0.0", font=(gf, 11), text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
 
-        self.theme_switch = ctk.CTkSwitch(sidebar, text="Dark Mode", command=self._toggle_theme, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
+        self.theme_switch = ctk.CTkSwitch(sidebar, text="Dark Mode", command=self._toggle_theme, font=(gf, 11), text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=("#AEAEB2", "#48484A"), button_color="#FFFFFF", button_hover_color=("#F0F0F0", "#E0E0E0"))
         self.theme_switch.pack(anchor="w", padx=20, pady=8)
         if self.app_config.get("dark_mode", True):
             self.theme_switch.select()
@@ -1053,9 +1053,9 @@ class BoBnoxApp(ctk.CTk):
 
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
         ctk.CTkLabel(sidebar, text="Engine", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(8, 4))
-        self.daemon_switch = ctk.CTkSwitch(sidebar, text="⟲ Daemon (inotify)", font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_GREEN, fg_color=self.C_BORDER, command=self._toggle_daemon)
+        self.daemon_switch = ctk.CTkSwitch(sidebar, text="⟲ Daemon", font=(gf, 11), text_color=self.C_TEXT, progress_color=ACCENT_GREEN, fg_color=("#AEAEB2", "#48484A"), button_color="#FFFFFF", button_hover_color=("#F0F0F0", "#E0E0E0"), command=self._toggle_daemon)
         self.daemon_switch.pack(anchor="w", padx=20, pady=4)
-        self.mime_switch = ctk.CTkSwitch(sidebar, text="⎔ MIME Sorting", font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
+        self.mime_switch = ctk.CTkSwitch(sidebar, text="⎔ MIME Sort", font=(gf, 11), text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=("#AEAEB2", "#48484A"), button_color="#FFFFFF", button_hover_color=("#F0F0F0", "#E0E0E0"))
         self.mime_switch.pack(anchor="w", padx=20, pady=4)
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
         ctk.CTkLabel(sidebar, text="Ledger", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(8, 4))
@@ -1110,7 +1110,7 @@ class BoBnoxApp(ctk.CTk):
             r.pack(fill="x", pady=3)
             ctk.CTkFrame(r, width=8, height=8, corner_radius=4, fg_color=dot_color).pack(side="left", padx=(0, 8))
             ctk.CTkLabel(r, text=label, font=(gf, 11), text_color=self.C_TEXT).pack(side="left")
-            ctk.CTkSwitch(r, variable=var, text="", width=36, height=18, progress_color=ACCENT_GREEN, button_color="#FFFFFF", button_hover_color="#EEEEEE").pack(side="right")
+            ctk.CTkSwitch(r, variable=var, text="", width=36, height=18, progress_color=ACCENT_GREEN, fg_color=("#AEAEB2", "#48484A"), button_color="#FFFFFF", button_hover_color=("#F0F0F0", "#E0E0E0")).pack(side="right")
 
         _opt_row(opts, "Dry Run", ACCENT_BLUE, self.dry_run_var)
         _opt_row(opts, "Recursive", ACCENT_ORANGE, self.recursive_var)
