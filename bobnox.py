@@ -11,7 +11,6 @@ from typing import List, Optional, Tuple
 
 import tkinter as tk
 from tkinter import font as tkfont
-from tkinter import filedialog
 import customtkinter as ctk
 
 IS_MACOS = platform.system() == "Darwin"
@@ -491,10 +490,17 @@ class BoBnoxApp(ctk.CTk):
         self.console.configure(state="disabled")
 
     def _select_directory(self):
-        path = filedialog.askdirectory(title="Select Target Directory")
-        if path:
-            self.path_var.set(path)
-            self._log(f"[INFO] Directory selected: {path}")
+        """Native GNOME/GTK file chooser via Zenity."""
+        try:
+            target = subprocess.check_output(
+                ["zenity", "--file-selection", "--directory", "--title=Select Target Directory"],
+                stderr=subprocess.DEVNULL
+            ).decode("utf-8").strip()
+            if target:
+                self.path_var.set(target)
+                self._log(f"[INFO] Directory selected: {target}")
+        except subprocess.CalledProcessError:
+            self._log("[WARN] Directory selection canceled.")
 
     def _on_recursive_toggle(self):
         self.app_config["organize_subdirectories"] = self.recursive_var.get()
