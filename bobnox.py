@@ -861,43 +861,50 @@ class FileOrganizer:
 # SETTINGS DIALOG
 # ======================================================================
 class SettingsDialog(ctk.CTkToplevel):
+    """Settings dialog - opens as a separate modal window."""
+    
     def __init__(self, parent, config: dict, on_save_callback):
         super().__init__(parent)
         self.config = config.copy()
         self.on_save = on_save_callback
+
         self.title("Settings")
         self.geometry("520x620")
         self.resizable(False, False)
         self.grab_set()
 
-        # Determine current theme
+        # Theme colors
         is_dark = ctk.get_appearance_mode() == "Dark"
         bg = BG_DARK if is_dark else BG_LIGHT
         card = CARD_DARK if is_dark else CARD_LIGHT
         text = TEXT_DARK if is_dark else TEXT_LIGHT
         muted = MUTED_DARK if is_dark else MUTED_LIGHT
         border = BORDER_DARK if is_dark else BORDER_LIGHT
+        entry_bg = ENTRY_DARK if is_dark else ENTRY_LIGHT
+        btn_dark = BTN_DARK if is_dark else BTN_LIGHT
+        btn_hover = BTN_HOVER_DARK if is_dark else BTN_HOVER_LIGHT
 
-        # Fix 3: Dialog type mask + center on parent (no overrideredirect)
+        # FIX: Explicit bg_color on Toplevel
+        self.configure(fg_color=card, bg_color=card)
+
+        # Linux dialog type
         if IS_LINUX:
             try:
                 self.attributes('-type', 'dialog')
             except Exception:
                 pass
 
-        # Fix 1+2: Match Toplevel bg to card, force uniform background
-        self.configure(fg_color=card)
-
-        # Main container with explicit bg_color chain to prevent corner leak
-        main_container = ctk.CTkFrame(self, fg_color=card, corner_radius=APP_RADIUS, bg_color=card)
+        # Main container with explicit bg_color chain
+        main_container = ctk.CTkFrame(self, fg_color=card, bg_color=card, corner_radius=APP_RADIUS)
         main_container.pack(fill="both", expand=True, padx=0, pady=0)
 
-        # Content frame with internal padding
-        content = ctk.CTkFrame(main_container, fg_color="transparent", bg_color=card)
+        # Content wrapper
+        content = ctk.CTkFrame(main_container, fg_color=card, bg_color=card, corner_radius=0)
         content.pack(fill="both", expand=True, padx=24, pady=20)
 
         # Header
-        ctk.CTkLabel(content, text="⚙ Settings", font=("Geist", 18, "bold"), text_color=text).pack(anchor="w", pady=(0, 8))
+        gf = "Geist" if geist_available() else ("Helvetica" if IS_MACOS else "Sans")
+        ctk.CTkLabel(content, text="⚙ Settings", font=(gf, 18, "bold"), text_color=text).pack(anchor="w", pady=(0, 8))
         ctk.CTkFrame(content, height=1, fg_color=border, bg_color=card).pack(fill="x", pady=(0, 12))
 
         # Scrollable extension list with explicit bg chain
@@ -905,15 +912,13 @@ class SettingsDialog(ctk.CTkToplevel):
         self.scroll_frame.pack(fill="both", expand=True, pady=(0, 12))
 
         # Buttons
-        btn_frame = ctk.CTkFrame(content, fg_color="transparent", bg_color=card)
+        btn_frame = ctk.CTkFrame(content, fg_color=card, bg_color=card)
         btn_frame.pack(fill="x", pady=(0, 4))
-        ctk.CTkButton(btn_frame, text="💾 Save", font=("Geist", 13, "bold"), fg_color=ACCENT_BLUE, hover_color="#004BB3", height=36, corner_radius=BTN_RADIUS, command=self._save).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(btn_frame, text="Cancel", font=("Geist", 13), fg_color=BTN_DARK if is_dark else BTN_LIGHT, hover_color=BTN_HOVER_DARK if is_dark else BTN_HOVER_LIGHT, text_color=text, height=36, corner_radius=BTN_RADIUS, command=self.destroy).pack(side="left")
+        ctk.CTkButton(btn_frame, text="💾 Save", font=(gf, 13, "bold"), fg_color=ACCENT_BLUE, hover_color="#004BB3", height=36, corner_radius=BTN_RADIUS, command=self._save).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_frame, text="Cancel", font=(gf, 13), fg_color=btn_dark, hover_color=btn_hover, text_color=text, height=36, corner_radius=BTN_RADIUS, command=self.destroy).pack(side="left")
 
         self.extension_entries = {}
         self.after(30, self._render_mappings)
-
-        # Center modal over parent window
         self.after(50, lambda: self._center_on_parent(parent))
 
     def _center_on_parent(self, parent):
@@ -932,12 +937,13 @@ class SettingsDialog(ctk.CTkToplevel):
         entry_bg = ENTRY_DARK if is_dark else ENTRY_LIGHT
         border = BORDER_DARK if is_dark else BORDER_LIGHT
         card = CARD_DARK if is_dark else CARD_LIGHT
+        gf = "Geist" if geist_available() else ("Helvetica" if IS_MACOS else "Sans")
 
         for ext, folder in sorted(self.config.get("extension_map", {}).items()):
-            row = ctk.CTkFrame(self.scroll_frame, fg_color=card, corner_radius=CARD_RADIUS)
+            row = ctk.CTkFrame(self.scroll_frame, fg_color=card, bg_color=card, corner_radius=CARD_RADIUS)
             row.pack(fill="x", pady=3)
-            ctk.CTkLabel(row, text=ext, font=("Geist", 13, "bold"), text_color=muted, width=80).pack(side="left", padx=(12, 8), pady=8)
-            entry = ctk.CTkEntry(row, font=("Geist", 13), fg_color=entry_bg, border_color=border, text_color=text, corner_radius=INPUT_RADIUS, height=32)
+            ctk.CTkLabel(row, text=ext, font=(gf, 13, "bold"), text_color=muted, width=80).pack(side="left", padx=(12, 8), pady=8)
+            entry = ctk.CTkEntry(row, font=(gf, 13), fg_color=entry_bg, border_color=border, text_color=text, corner_radius=INPUT_RADIUS, height=32)
             entry.insert(0, folder)
             entry.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=8)
             self.extension_entries[ext] = entry
@@ -961,7 +967,7 @@ class BoBnoxApp(ctk.CTk):
         self.organizer = FileOrganizer(self.app_config)
         self.log_messages = []
 
-        self.title("BoBnox v2.1.2")
+        self.title("BoBnox v2.1.3")
         self.geometry("1100x800")
         self.minsize(900, 650)
 
@@ -1014,12 +1020,12 @@ class BoBnoxApp(ctk.CTk):
 
     def _create_widgets(self):
         # --- SIDEBAR ---
-        sidebar = ctk.CTkFrame(self, width=220, fg_color=self.C_CARD, corner_radius=0)
+        sidebar = ctk.CTkFrame(self, width=220, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=0)
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(pady=(24, 4), padx=20, anchor="w")
-        ctk.CTkLabel(sidebar, text="v2.1.2", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
+        ctk.CTkLabel(sidebar, text="v2.1.3", font=self.F_SUB, text_color=self.C_MUTED).pack(padx=20, anchor="w")
 
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=16)
 
@@ -1054,12 +1060,12 @@ class BoBnoxApp(ctk.CTk):
         content.grid_rowconfigure(2, weight=1)
 
         # Row 0: Branding + Options
-        brand = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=APP_RADIUS)
+        brand = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         brand.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
         ctk.CTkLabel(brand, text="boBnox", text_color=self.C_TEXT, font=self.F_TITLE).pack(anchor="w", padx=24, pady=(20, 4))
         ctk.CTkLabel(brand, text="Organize your files into categorized folders", text_color=self.C_MUTED, font=self.F_LABEL).pack(anchor="w", padx=24, pady=(0, 16))
 
-        opts = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=APP_RADIUS)
+        opts = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         opts.grid(row=0, column=1, padx=8, pady=8, sticky="nsew")
         ctk.CTkLabel(opts, text="Options", text_color=self.C_MUTED, font=self.F_SUB).pack(anchor="w", padx=24, pady=(16, 8))
         self.sw_dry = ctk.CTkSwitch(opts, text="⏀ Dry Run", variable=self.dry_run_var, font=self.F_LABEL, text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=self.C_BORDER)
@@ -1070,7 +1076,7 @@ class BoBnoxApp(ctk.CTk):
         self.sw_dedup.pack(anchor="w", padx=24, pady=(6, 16))
 
         # Row 1: Path
-        path_card = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=APP_RADIUS)
+        path_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         path_card.grid(row=1, column=0, columnspan=2, padx=8, pady=8, sticky="nsew")
         ctk.CTkLabel(path_card, text="Target Directory", text_color=self.C_MUTED, font=self.F_SUB).pack(anchor="w", padx=24, pady=(14, 6))
         pf = ctk.CTkFrame(path_card, fg_color="transparent")
@@ -1081,7 +1087,7 @@ class BoBnoxApp(ctk.CTk):
         self.browse_btn.pack(side="left")
 
         # Row 2: Command Center (Buttons + Status + Console)
-        cmd_center = ctk.CTkFrame(content, fg_color=self.C_CARD, corner_radius=APP_RADIUS)
+        cmd_center = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=APP_RADIUS)
         cmd_center.grid(row=2, column=0, columnspan=2, padx=8, pady=8, sticky="nsew")
         cmd_center.grid_rowconfigure(2, weight=1)
         cmd_center.grid_columnconfigure(0, weight=1)
@@ -1131,7 +1137,7 @@ class BoBnoxApp(ctk.CTk):
         # Console (same padx as status header for alignment)
         self.console = ctk.CTkTextbox(cmd_center, fg_color=self.C_ENTRY, text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=BTN_RADIUS, border_color=self.C_BORDER, border_width=1)
         self.console.grid(row=2, column=0, sticky="nsew", padx=20, pady=(0, 20))
-        self.console.insert("end", ">> boBnox v2.1.2 initialized.\n>> Awaiting target directory...\n")
+        self.console.insert("end", ">> boBnox v2.1.3 initialized.\n>> Awaiting target directory...\n")
         self.console.configure(state="disabled")
 
     # --- Theme ---
