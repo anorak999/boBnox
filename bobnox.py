@@ -878,10 +878,10 @@ class SettingsDialog(ctk.CTkToplevel):
         muted = MUTED_DARK if is_dark else MUTED_LIGHT
         border = BORDER_DARK if is_dark else BORDER_LIGHT
 
-        # Fix 3: Suppress native window borders on Linux
+        # Fix 3: Dialog type mask + center on parent (no overrideredirect)
         if IS_LINUX:
             try:
-                self.overrideredirect(True)
+                self.attributes('-type', 'dialog')
             except Exception:
                 pass
 
@@ -912,6 +912,18 @@ class SettingsDialog(ctk.CTkToplevel):
 
         self.extension_entries = {}
         self.after(30, self._render_mappings)
+
+        # Center modal over parent window
+        self.after(50, lambda: self._center_on_parent(parent))
+
+    def _center_on_parent(self, parent):
+        self.update_idletasks()
+        w, h = 520, 620
+        px, py = parent.winfo_x(), parent.winfo_y()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        x = px + (pw // 2) - (w // 2)
+        y = py + (ph // 2) - (h // 2)
+        self.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
 
     def _render_mappings(self):
         is_dark = ctk.get_appearance_mode() == "Dark"
