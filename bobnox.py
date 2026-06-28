@@ -202,11 +202,21 @@ class MimeValidator:
     def route_by_mime(self, file_path: str) -> str:
         mime_type = self.resolve_true_type(file_path)
         if not mime_type:
-            return "Uncategorized"
+            return "Other Files"
         main_type = mime_type.split('/')[0]
+        sub_type = mime_type.split('/')[-1] if '/' in mime_type else ""
+
+        # Specific MIME type overrides
+        if sub_type in ("zip", "x-zip-compressed", "x-7z-compressed", "x-rar-compressed", "x-tar", "x-gzip", "x-bzip2"):
+            return "Archives"
+        if sub_type in ("pdf",):
+            return "Documents"
+        if sub_type in ("vnd.openxmlformats-officedocument.wordprocessingml.document", "msword"):
+            return "Documents"
+
         category_map = {
             "image": "Images", "video": "Videos", "audio": "Audio",
-            "application": "Documents", "text": "Text Documents",
+            "text": "Text Documents",
         }
         return category_map.get(main_type, "Other Files")
 
