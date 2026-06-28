@@ -799,7 +799,7 @@ class FileOrganizer:
 
     def organize_directory(self, directory_path: str, status_callback, dry_run: bool = False,
                            use_mime: bool = False, dedup_scan: bool = False,
-                           entropy_threshold: float = 6.8, include_hidden: bool = False) -> int:
+                           use_entropy: bool = False, include_hidden: bool = False) -> int:
         if not os.path.isdir(directory_path):
             raise FileNotFoundError("Invalid directory.")
 
@@ -826,15 +826,15 @@ class FileOrganizer:
                 skipped_guard += 1
         files_to_move = valid
 
-        if entropy_threshold < 8.0:
+        if use_entropy:
             filtered = []
             for f in files_to_move:
                 result = self.entropy_analyzer.classify(str(f))
-                if result["entropy"] <= entropy_threshold:
+                if result["action"] == "STANDARD_SORT":
                     filtered.append(f)
                 else:
                     skipped_entropy += 1
-                    status_callback(f"[ENTROPY] Skipped {f.name} — entropy {result['entropy']} > {entropy_threshold}", 0.0)
+                    status_callback(f"[ENTROPY] Skipped {f.name} — {result['tier']}", 0.0)
             files_to_move = filtered
 
         total = len(files_to_move)
@@ -1158,6 +1158,7 @@ class BoBnoxApp(ctk.CTk):
         self.log_file_var = tk.BooleanVar(value=self.app_config.get("create_log_file", True))
         self.hidden_var = tk.BooleanVar(value=False)
         self.verbose_var = tk.BooleanVar(value=False)
+        self.entropy_var = tk.BooleanVar(value=False)
         self.undo_limit_var = tk.StringVar(value="10")
         self.collision_var = tk.StringVar(value="SMART_RENAME")
         self.template_var = tk.StringVar()
@@ -1368,9 +1369,8 @@ class BoBnoxApp(ctk.CTk):
         ctk.CTkLabel(dedup_card, text="Purge Mode", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(4, 2))
         self.opt_link_mode = ctk.CTkOptionMenu(dedup_card, values=["SMART_LINK", "HARDLINK", "DELETE"], fg_color=self.C_BTN, button_color=ACCENT_BLUE, text_color=self.C_TEXT, font=(gf, 11))
         self.opt_link_mode.pack(fill="x", padx=16, pady=(0, 8))
-        ctk.CTkLabel(dedup_card, text="Entropy Threshold", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(4, 2))
-        self.txt_threshold = ctk.CTkEntry(dedup_card, placeholder_text="6.8", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=(gf, 11), corner_radius=INPUT_RADIUS, height=30)
-        self.txt_threshold.pack(fill="x", padx=16, pady=(0, 8))
+        ctk.CTkLabel(dedup_card, text="Entropy Filter", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(4, 2))
+        ctk.CTkCheckBox(dedup_card, text="Skip high-entropy files", variable=self.entropy_var, fg_color=ACCENT_BLUE, text_color=self.C_TEXT, font=(gf, 11)).pack(anchor="w", padx=16, pady=(0, 8))
         self._build_collision_row(dedup_card, gf)
         ctk.CTkFrame(dedup_card, fg_color="transparent").pack(fill="both", expand=True)
 
@@ -1520,10 +1520,7 @@ class BoBnoxApp(ctk.CTk):
         use_mime = self.mime_sort_var.get()
         hidden = self.hidden_var.get()
 
-        try:
-            entropy_threshold = float(self.txt_threshold.get())
-        except (ValueError, AttributeError):
-            entropy_threshold = 6.8
+        use_entropy = self.entropy_var.get()
 
         self.organizer.conflict_resolver = GtkConflictResolver(default_strategy=self.collision_var.get())
         template = self.template_var.get().strip()
@@ -1538,14 +1535,14 @@ class BoBnoxApp(ctk.CTk):
         self.after(0, lambda: self.progress_bar.set(0.0))
         self.after(0, lambda: self.progress_label.configure(text="0%"))
         self._log(f"[INFO] Organizing: {path}")
-        threading.Thread(target=self._organize_thread, args=(path, dry_run, use_mime, dedup, entropy_threshold, hidden), daemon=True).start()
+        threading.Thread(target=self._organize_thread, args=(path, dry_run, use_mime, dedup, use_entropy, hidden), daemon=True).start()
 
-    def _organize_thread(self, path, dry_run, use_mime, dedup, entropy_threshold, hidden):
+    def _organize_thread(self, path, dry_run, use_mime, dedup, use_entropy, hidden):
         try:
             moved = self.organizer.organize_directory(
                 path, self._update_status, dry_run=dry_run,
                 use_mime=use_mime, dedup_scan=dedup,
-                entropy_threshold=entropy_threshold, include_hidden=hidden
+                use_entropy=use_entropy, include_hidden=hidden
             )
             msg = f"Preview: {moved} files." if dry_run and moved else f"Done! Moved {moved} files." if moved else "No files to move."
             self.after(0, lambda: self._log(f"\n[DONE] {msg}"))
