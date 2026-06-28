@@ -358,7 +358,7 @@ class TokenParser:
 # ======================================================================
 class PosixGuard:
     @staticmethod
-    def validate_file(file_path: str) -> bool:
+    def validate_file(file_path: str, include_hidden: bool = False) -> bool:
         if not os.path.exists(file_path):
             return False
         file_stat = os.lstat(file_path)
@@ -368,7 +368,7 @@ class PosixGuard:
         if file_stat.st_uid == 0:
             logger.warning(f"Quarantined root-owned: {file_path}")
             return False
-        if os.path.basename(file_path).startswith('.'):
+        if not include_hidden and os.path.basename(file_path).startswith('.'):
             return False
         if not os.access(file_path, os.W_OK):
             logger.warning(f"Write denied: {file_path}")
@@ -380,28 +380,32 @@ class PosixGuard:
 # FEATURE 8: GTK File-Conflict Portal
 # ======================================================================
 class GtkConflictResolver:
-    @staticmethod
-    def prompt_resolution(target_path: str) -> str:
+    def __init__(self, default_strategy: str = "PROMPT"):
+        self.default_strategy = default_strategy
+
+    def prompt_resolution(self, target_path: str) -> str:
+        if self.default_strategy != "PROMPT":
+            return self.default_strategy
         filename = os.path.basename(target_path)
         cmd = [
             "zenity", "--list", "--title=boBnox Collision Alert",
             "--text", f"File collision: {filename}\nDestination exists. Choose action:",
             "--radiolist", "--column=Select", "--column=Action",
-            "TRUE", "Smart Rename", "FALSE", "Overwrite", "FALSE", "Skip"
+            "TRUE", "SMART_RENAME", "FALSE", "OVERWRITE", "FALSE", "SKIP"
         ]
         try:
             result = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
             return result
         except subprocess.CalledProcessError:
-            return "Skip"
+            return "SKIP"
 
     def handle_collision(self, src: str, dest: str) -> Optional[str]:
         if not os.path.exists(dest):
             return dest
         action = self.prompt_resolution(dest)
-        if action == "Overwrite":
+        if action == "OVERWRITE":
             return dest
-        elif action == "Smart Rename":
+        elif action == "SMART_RENAME":
             base, ext = os.path.splitext(dest)
             counter = 1
             new_dest = f"{base}_{counter}{ext}"
@@ -765,35 +769,60 @@ class FileOrganizer:
         self.guard = PosixGuard()
 
     def organize_directory(self, directory_path: str, status_callback, dry_run: bool = False,
-                           use_mime: bool = False, dedup_scan: bool = False) -> int:
+                           use_mime: bool = False, dedup_scan: bool = False,
+                           entropy_threshold: float = 6.8, include_hidden: bool = False) -> int:
         if not os.path.isdir(directory_path):
             raise FileNotFoundError("Invalid directory.")
 
         directory = Path(directory_path)
+        skipped_entropy = 0
+        skipped_guard = 0
 
         if dedup_scan:
             duplicates = self.dedup_engine.scan_directory(directory_path)
             if duplicates:
                 status_callback(f"Found {len(duplicates)} duplicates.", 0.0)
-                self.dedup_engine.reset()
+            self.dedup_engine.reset()
 
         if self.organize_subdirectories:
             files_to_move = [f for f in directory.rglob('*') if f.is_file() and f.name != os.path.basename(__file__)]
         else:
             files_to_move = [f for f in directory.iterdir() if f.is_file() and f.name != os.path.basename(__file__)]
 
-        files_to_move = [f for f in files_to_move if self.guard.validate_file(str(f))]
+        valid = []
+        for f in files_to_move:
+            if self.guard.validate_file(str(f), include_hidden=include_hidden):
+                valid.append(f)
+            else:
+                skipped_guard += 1
+        files_to_move = valid
+
+        if entropy_threshold < 8.0:
+            filtered = []
+            for f in files_to_move:
+                result = self.entropy_analyzer.classify(str(f))
+                if result["entropy"] <= entropy_threshold:
+                    filtered.append(f)
+                else:
+                    skipped_entropy += 1
+                    status_callback(f"[ENTROPY] Skipped {f.name} — entropy {result['entropy']} > {entropy_threshold}", 0.0)
+            files_to_move = filtered
+
         total = len(files_to_move)
         moved = 0
         if total == 0:
-            status_callback("No files to organize.", 1.0)
+            status_callback(f"No files to organize. Skipped: {skipped_guard} (guard) + {skipped_entropy} (entropy)", 1.0)
             return 0
 
         self._move_history.clear()
 
         for i, fp in enumerate(files_to_move):
-            ext = fp.suffix.lower()
+            integrity = self.struct_validator.analyze_file(str(fp))
+            if integrity.get("status") == "ANOMALY":
+                status_callback(f"[ANOMALY] {fp.name} — magic byte mismatch, quarantined", (i + 1) / total)
+                continue
 
+            ext = fp.suffix.lower()
             if use_mime and self.mime_validator:
                 folder_name = self.mime_validator.route_by_mime(str(fp))
             else:
@@ -825,6 +854,7 @@ class FileOrganizer:
                     file_hash = self.dedup_engine.compute_sha256(str(fp))
                     shutil.move(str(fp), str(dest_path))
                     self.ledger.log_move(str(fp), str(dest_path), file_hash)
+                    self.xattr_layer.write_states(str(dest_path), {"moved_at": str(time.time()), "original_path": str(fp)})
                     self._move_history.append((dest_path, fp))
                     moved += 1
                 except Exception as ex:
@@ -833,8 +863,9 @@ class FileOrganizer:
             else:
                 moved += 1
 
-            status_callback(f"{'Would move' if dry_run else 'Moving'} ({i+1}/{total}): {fp.relative_to(directory)} -> {folder_name}", (i+1)/total)
+            status_callback(f"{'Would move' if dry_run else 'Moving'} ({i+1}/{total}): {fp.relative_to(directory)} → {folder_name}", (i + 1) / total)
 
+        status_callback(f"Done. Moved: {moved}  Skipped (guard): {skipped_guard}  Skipped (entropy): {skipped_entropy}", 1.0)
         return moved
 
     def organize_single_file(self, file_path: str, watch_dir: str, dry_run: bool = False):
@@ -856,6 +887,98 @@ class FileOrganizer:
         restored = self.ledger.rollback_latest()
         self._move_history.clear()
         return restored
+
+
+# ======================================================================
+# LEDGER HISTORY DIALOG
+# ======================================================================
+class LedgerHistoryDialog(ctk.CTkToplevel):
+    """Browse the full SQLite operation log."""
+
+    def __init__(self, parent, ledger):
+        super().__init__(parent)
+        self.ledger = ledger
+        self.title("Operation History")
+        self.geometry("720x480")
+        self.resizable(True, True)
+        self.grab_set()
+
+        is_dark = ctk.get_appearance_mode() == "Dark"
+        bg = CARD_DARK if is_dark else CARD_LIGHT
+        text = TEXT_DARK if is_dark else TEXT_LIGHT
+        muted = MUTED_DARK if is_dark else MUTED_LIGHT
+        entry = ENTRY_DARK if is_dark else ENTRY_LIGHT
+        border = BORDER_DARK if is_dark else BORDER_LIGHT
+
+        self.configure(fg_color=bg)
+
+        hdr = ctk.CTkFrame(self, fg_color="transparent")
+        hdr.pack(fill="x", padx=20, pady=(16, 0))
+        ctk.CTkLabel(hdr, text="Operation History", font=("Geist", 16, "bold"), text_color=text).pack(side="left")
+
+        filter_row = ctk.CTkFrame(self, fg_color="transparent")
+        filter_row.pack(fill="x", padx=20, pady=(8, 4))
+        filter_row.columnconfigure(0, weight=1)
+
+        self._filter_var = tk.StringVar()
+        ctk.CTkEntry(filter_row, textvariable=self._filter_var, placeholder_text="Filter by filename...", font=("Geist", 11), fg_color=entry, border_color=border, text_color=text, corner_radius=INPUT_RADIUS, height=28).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(filter_row, text="Refresh", font=("Geist", 11), fg_color=BTN_DARK if is_dark else BTN_LIGHT, hover_color=BTN_HOVER_DARK if is_dark else BTN_HOVER_LIGHT, text_color=text, height=28, corner_radius=BTN_RADIUS, command=self._load).grid(row=0, column=1)
+        self._filter_var.trace_add("write", lambda *_: self._load())
+
+        col_hdr = ctk.CTkFrame(self, fg_color=entry, corner_radius=0)
+        col_hdr.pack(fill="x", padx=20, pady=(4, 0))
+        for label, w in [("Timestamp", 140), ("Source", 220), ("Destination", 220), ("Status", 80)]:
+            ctk.CTkLabel(col_hdr, text=label, font=("Geist", 10), text_color=muted, width=w, anchor="w").pack(side="left", padx=8, pady=4)
+
+        self._scroll = ctk.CTkScrollableFrame(self, fg_color=bg, corner_radius=0, border_width=1, border_color=border)
+        self._scroll.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+
+        self._stats_label = ctk.CTkLabel(self, text="", font=("Geist", 10), text_color=muted)
+        self._stats_label.pack(anchor="w", padx=20, pady=(0, 12))
+
+        self._load()
+        self.after(50, lambda: self._center(parent))
+
+    def _load(self):
+        for w in self._scroll.winfo_children():
+            w.destroy()
+
+        is_dark = ctk.get_appearance_mode() == "Dark"
+        text = TEXT_DARK if is_dark else TEXT_LIGHT
+        muted = MUTED_DARK if is_dark else MUTED_LIGHT
+        border = BORDER_DARK if is_dark else BORDER_LIGHT
+        filt = self._filter_var.get().lower()
+
+        cursor = self.ledger.conn.cursor()
+        cursor.execute("SELECT timestamp, source_path, target_path, status FROM file_operations ORDER BY timestamp DESC LIMIT 500")
+        rows = cursor.fetchall()
+
+        shown = 0
+        for ts, src, dest, status in rows:
+            src_name = os.path.basename(src)
+            if filt and filt not in src_name.lower() and filt not in src.lower():
+                continue
+            row_frame = ctk.CTkFrame(self._scroll, fg_color="transparent", corner_radius=0)
+            row_frame.pack(fill="x", pady=1)
+            ctk.CTkFrame(row_frame, height=1, fg_color=border).pack(fill="x")
+            content = ctk.CTkFrame(row_frame, fg_color="transparent")
+            content.pack(fill="x", padx=4, pady=3)
+            ts_str = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M:%S")
+            ctk.CTkLabel(content, text=ts_str, font=("Courier", 10), text_color=muted, width=140, anchor="w").pack(side="left")
+            ctk.CTkLabel(content, text=src_name, font=("Geist", 10), text_color=text, width=220, anchor="w").pack(side="left")
+            ctk.CTkLabel(content, text=os.path.basename(dest), font=("Geist", 10), text_color=muted, width=220, anchor="w").pack(side="left")
+            sc = ACCENT_GREEN if status == "COMPLETED" else ACCENT_CORAL
+            ctk.CTkLabel(content, text=status, font=("Geist", 9), text_color=sc, width=80, anchor="w").pack(side="left")
+            shown += 1
+
+        self._stats_label.configure(text=f"Showing {shown} of {len(rows)} operations")
+
+    def _center(self, parent):
+        self.update_idletasks()
+        w, h = 720, 480
+        x = parent.winfo_x() + (parent.winfo_width() - w) // 2
+        y = parent.winfo_y() + (parent.winfo_height() - h) // 2
+        self.geometry(f"{w}x{h}+{max(0,x)}+{max(0,y)}")
 
 
 # ======================================================================
@@ -966,7 +1089,7 @@ class BoBnoxApp(ctk.CTk):
         self.log_messages = []
         self.running = False
 
-        self.title("BoBnox v4.0.0")
+        self.title("BoBnox v4.1.0")
         self.geometry("1200x820")
         self.minsize(960, 680)
 
@@ -1002,6 +1125,13 @@ class BoBnoxApp(ctk.CTk):
         self.path_var = tk.StringVar()
         self.dry_run_var = tk.BooleanVar(value=False)
         self.recursive_var = tk.BooleanVar(value=self.app_config.get("organize_subdirectories", False))
+        self.mime_sort_var = tk.BooleanVar(value=False)
+        self.log_file_var = tk.BooleanVar(value=self.app_config.get("create_log_file", True))
+        self.hidden_var = tk.BooleanVar(value=False)
+        self.verbose_var = tk.BooleanVar(value=False)
+        self.undo_limit_var = tk.StringVar(value="10")
+        self.collision_var = tk.StringVar(value="SMART_RENAME")
+        self.template_var = tk.StringVar()
         self._watcher = None
 
         self.grid_columnconfigure(0, weight=0, minsize=250)
@@ -1015,6 +1145,88 @@ class BoBnoxApp(ctk.CTk):
         ctk.set_appearance_mode("Dark" if self.app_config.get("dark_mode", True) else "Light")
 
         self._create_widgets()
+
+    # --- Patch helpers ---
+    def _build_sidebar_extras(self, sidebar, gf):
+        is_dark = ctk.get_appearance_mode() == "Dark"
+        text = self.C_TEXT
+        muted = self.C_MUTED
+        border = self.C_BORDER
+
+        ctk.CTkFrame(sidebar, height=1, fg_color=border).pack(fill="x", padx=14, pady=(8, 0))
+        ctk.CTkLabel(sidebar, text="Logging", font=(gf, 9), text_color=muted).pack(anchor="w", padx=14, pady=(8, 4))
+
+        def _sw(parent, label, var):
+            r = ctk.CTkFrame(parent, fg_color="transparent")
+            r.pack(fill="x", padx=12, pady=2)
+            ctk.CTkLabel(r, text=label, font=(gf, 11), text_color=text).pack(side="left")
+            ctk.CTkSwitch(r, variable=var, text="", width=36, height=18, progress_color=ACCENT_GREEN, fg_color=("#AEAEB2", "#48484A"), button_color="#FFFFFF").pack(side="right")
+
+        _sw(sidebar, "Create log file", self.log_file_var)
+        _sw(sidebar, "Verbose output", self.verbose_var)
+
+        ctk.CTkFrame(sidebar, height=1, fg_color=border).pack(fill="x", padx=14, pady=(8, 0))
+        ctk.CTkLabel(sidebar, text="Guard", font=(gf, 9), text_color=muted).pack(anchor="w", padx=14, pady=(8, 4))
+        _sw(sidebar, "Include hidden files", self.hidden_var)
+
+    def _build_collision_row(self, parent, gf):
+        muted = self.C_MUTED
+        entry = self.C_ENTRY
+        border = self.C_BORDER
+
+        ctk.CTkLabel(parent, text="Collision Strategy", font=(gf, 10), text_color=muted).pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkOptionMenu(parent, variable=self.collision_var, values=["SMART_RENAME", "OVERWRITE", "SKIP", "PROMPT"], font=(gf, 11), fg_color=entry, button_color=ACCENT_BLUE, text_color=self.C_TEXT, corner_radius=INPUT_RADIUS, height=30).pack(fill="x", padx=14)
+
+    def _build_undo_row(self, parent, gf):
+        muted = self.C_MUTED
+        entry = self.C_ENTRY
+        border = self.C_BORDER
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=12, pady=(4, 0))
+        ctk.CTkLabel(row, text="Undo depth", font=(gf, 10), text_color=muted).pack(side="left")
+        ctk.CTkEntry(row, textvariable=self.undo_limit_var, font=(gf, 11), width=48, height=24, fg_color=entry, border_color=border, text_color=self.C_TEXT, corner_radius=INPUT_RADIUS, justify="center").pack(side="right")
+
+    def _build_regex_card_extras(self, parent, gf):
+        muted = self.C_MUTED
+        border = self.C_BORDER
+        ctk.CTkLabel(parent, text="tokens: ${creation_date}  ${year}  ${month}  ${ext}  ${filename}", font=(gf, 9), text_color=muted, anchor="w").pack(anchor="w", padx=14, pady=(4, 0))
+        ctk.CTkFrame(parent, height=1, fg_color=border).pack(fill="x", padx=14, pady=(8, 0))
+        preview_row = ctk.CTkFrame(parent, fg_color="transparent")
+        preview_row.pack(fill="x", padx=14, pady=(6, 12))
+        ctk.CTkLabel(preview_row, text="Preview", font=(gf, 9), text_color=muted).pack(side="left", padx=(0, 8))
+        self._preview_label = ctk.CTkLabel(preview_row, text="—", font=("Courier", 10), text_color=muted, anchor="w")
+        self._preview_label.pack(side="left", fill="x", expand=True)
+        self.template_var.trace_add("write", self._update_template_preview)
+
+    def _update_template_preview(self, *_):
+        raw = self.template_var.get()
+        if not raw:
+            self._preview_label.configure(text="—")
+            return
+        now = datetime.now()
+        resolved = raw.replace("${creation_date}", now.strftime("%Y-%m-%d")).replace("${year}", now.strftime("%Y")).replace("${month}", now.strftime("%m")).replace("${ext}", "pdf").replace("${filename}", "invoice_march")
+        resolved = resolved.replace("//", "/")
+        self._preview_label.configure(text=resolved)
+
+    def _open_ledger_history(self):
+        LedgerHistoryDialog(self, self.organizer.ledger).focus()
+
+    def _show_dedup_results(self, duplicates):
+        if not duplicates:
+            self._log("Dedup scan: no duplicates found.")
+            return
+        self._log(f"Dedup scan: {len(duplicates)} duplicate(s) found:")
+        for item in duplicates[:50]:
+            path = item.get("path", "")
+            original = item.get("original", "")
+            try:
+                size = os.path.getsize(path)
+                size_str = f"{size // 1024} KB"
+            except OSError:
+                size_str = "?"
+            self._log(f"  DUP {os.path.basename(path)} ({size_str}) <- {os.path.basename(original)}")
+        if len(duplicates) > 50:
+            self._log(f"  ... and {len(duplicates) - 50} more")
 
     def _log(self, msg: str):
         """Thread-safe bounded console log (max 500 lines)."""
@@ -1059,8 +1271,9 @@ class BoBnoxApp(ctk.CTk):
         self.mime_switch.pack(anchor="w", padx=20, pady=4)
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
         ctk.CTkLabel(sidebar, text="Ledger", font=self.F_SUB, text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(8, 4))
-        self.ledger_status = ctk.CTkLabel(sidebar, text=f"Pending: {self.organizer.ledger.get_pending_count()}", font=self.F_LABEL, text_color=ACCENT_GREEN)
+        self.ledger_status = ctk.CTkLabel(sidebar, text=f"Pending: {self.organizer.ledger.get_pending_count()}", font=(gf, 11), text_color=ACCENT_GREEN)
         self.ledger_status.pack(anchor="w", padx=20, pady=4)
+        self._build_sidebar_extras(sidebar, gf)
 
         # CONTENT GRID
         content = ctk.CTkFrame(self, fg_color="transparent", bg_color=self.C_BG, corner_radius=0)
@@ -1129,6 +1342,7 @@ class BoBnoxApp(ctk.CTk):
         ctk.CTkLabel(dedup_card, text="Entropy Threshold", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(4, 2))
         self.txt_threshold = ctk.CTkEntry(dedup_card, placeholder_text="6.8", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=(gf, 11), corner_radius=INPUT_RADIUS, height=30)
         self.txt_threshold.pack(fill="x", padx=16, pady=(0, 8))
+        self._build_collision_row(dedup_card, gf)
         ctk.CTkFrame(dedup_card, fg_color="transparent").pack(fill="both", expand=True)
 
         rename_card = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
@@ -1139,9 +1353,9 @@ class BoBnoxApp(ctk.CTk):
         self.txt_regex = ctk.CTkEntry(rename_card, placeholder_text=r"^.*$", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=("Courier", 11), corner_radius=INPUT_RADIUS, height=30)
         self.txt_regex.pack(fill="x", padx=16, pady=(0, 4))
         ctk.CTkLabel(rename_card, text="Template", text_color=self.C_MUTED, font=(gf, 10)).pack(anchor="w", padx=16, pady=(8, 2))
-        self.txt_template = ctk.CTkEntry(rename_card, placeholder_text="${creation_date}/${ext}/", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=("Courier", 11), corner_radius=INPUT_RADIUS, height=30)
+        self.txt_template = ctk.CTkEntry(rename_card, textvariable=self.template_var, placeholder_text="${creation_date}/${ext}/", fg_color=self.C_ENTRY, border_color=self.C_BORDER, text_color=self.C_TEXT, font=("Courier", 11), corner_radius=INPUT_RADIUS, height=30)
         self.txt_template.pack(fill="x", padx=16, pady=(0, 4))
-        ctk.CTkLabel(rename_card, text="tokens: ${creation_date}  ${ext}  ${filename}  ${year}", font=(gf, 9), text_color=self.C_MUTED, anchor="w").pack(anchor="w", padx=16, pady=(4, 8))
+        self._build_regex_card_extras(rename_card, gf)
         ctk.CTkFrame(rename_card, fg_color="transparent").pack(fill="both", expand=True)
 
         # BOTTOM ROW: Actions + Monitor (fill both, expand)
@@ -1159,7 +1373,8 @@ class BoBnoxApp(ctk.CTk):
         _action_btn(actions_card, "▶  Organize", 0, 0, primary=True, command=self._start_organizing)
         _action_btn(actions_card, "⟲  Undo", 0, 1, command=self._undo_action)
         _action_btn(actions_card, "📁  Open Folder", 1, 0, command=self._open_folder)
-        _action_btn(actions_card, "⚙  Settings", 1, 1, command=self._open_settings)
+        _action_btn(actions_card, "⊞  History", 1, 1, command=self._open_ledger_history)
+        self._build_undo_row(actions_card, gf)
 
         monitor = ctk.CTkFrame(content, fg_color=self.C_CARD, bg_color=self.C_BG, corner_radius=CARD_RADIUS, border_width=1, border_color=self.C_BORDER)
         monitor.grid(row=2, column=1, padx=(3, 6), pady=(3, 6), sticky="nsew")
@@ -1265,13 +1480,30 @@ class BoBnoxApp(ctk.CTk):
         self.path_entry.configure(state=state)
 
     def _start_organizing(self):
-        path = self.path_var.get()
+        path = self.path_var.get().strip()
         if not path or not os.path.isdir(path):
-            self._log("[ERROR] Select a valid directory.")
+            self._log("[WARN] Select a valid directory first.")
             return
         if self.running:
             return
-        # LOCK window during operation
+
+        dry_run = self.dry_run_var.get()
+        recursive = self.recursive_var.get()
+        dedup = self.sw_dedup_var.get()
+        use_mime = self.mime_sort_var.get()
+        hidden = self.hidden_var.get()
+
+        try:
+            entropy_threshold = float(self.txt_threshold.get())
+        except (ValueError, AttributeError):
+            entropy_threshold = 6.8
+
+        self.organizer.conflict_resolver = GtkConflictResolver(default_strategy=self.collision_var.get())
+        template = self.template_var.get().strip()
+        self.organizer.dest_pattern = template if template else None
+        self.organizer.organize_subdirectories = recursive
+        self.app_config["create_log_file"] = self.log_file_var.get()
+
         self.running = True
         self.resizable(False, False)
         self._set_ui_state(True)
@@ -1279,15 +1511,14 @@ class BoBnoxApp(ctk.CTk):
         self.after(0, lambda: self.progress_bar.set(0.0))
         self.after(0, lambda: self.progress_label.configure(text="0%"))
         self._log(f"[INFO] Organizing: {path}")
-        threading.Thread(target=self._organize_thread, args=(path, self.dry_run_var.get()), daemon=True).start()
+        threading.Thread(target=self._organize_thread, args=(path, dry_run, use_mime, dedup, entropy_threshold, hidden), daemon=True).start()
 
-    def _organize_thread(self, path: str, dry_run: bool):
+    def _organize_thread(self, path, dry_run, use_mime, dedup, entropy_threshold, hidden):
         try:
-            self.organizer.organize_subdirectories = self.recursive_var.get()
             moved = self.organizer.organize_directory(
                 path, self._update_status, dry_run=dry_run,
-                use_mime=self.mime_switch.get() == 1,
-                dedup_scan=self.sw_dedup_var.get()
+                use_mime=use_mime, dedup_scan=dedup,
+                entropy_threshold=entropy_threshold, include_hidden=hidden
             )
             msg = f"Preview: {moved} files." if dry_run and moved else f"Done! Moved {moved} files." if moved else "No files to move."
             self.after(0, lambda: self._log(f"\n[DONE] {msg}"))
@@ -1300,7 +1531,6 @@ class BoBnoxApp(ctk.CTk):
             self.after(0, lambda: self._log(f"[ERROR] {err}"))
             self.after(0, lambda: self.status_label.configure(text="Error", text_color=ACCENT_CORAL))
         finally:
-            # RESTORE UI
             self.running = False
             self.after(0, lambda: self.resizable(True, True))
             self.after(0, lambda: self._set_ui_state(False))
@@ -1327,8 +1557,13 @@ class BoBnoxApp(ctk.CTk):
 
     def _undo_thread(self):
         try:
-            restored = self.organizer.undo_last_organization(self._update_status)
-            self.after(0, lambda: self._log(f"\n[DONE] Restored {restored} files."))
+            try:
+                limit = int(self.undo_limit_var.get())
+                limit = max(1, min(limit, 500))
+            except ValueError:
+                limit = 10
+            restored = self.organizer.ledger.rollback_latest(limit=limit)
+            self.after(0, lambda: self._log(f"\n[DONE] Restored {restored} files (limit: {limit})."))
             self.after(0, lambda: self.status_label.configure(text="System Ready", text_color=ACCENT_GREEN))
             self.after(0, lambda: self.ledger_status.configure(text=f"Pending: {self.organizer.ledger.get_pending_count()}"))
             self.after(0, lambda: self.undo_btn.configure(state="disabled"))
