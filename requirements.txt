@@ -1,3 +1,5 @@
 customtkinter
 cairosvg
 Pillow
+python-magic
+inotify-simple
