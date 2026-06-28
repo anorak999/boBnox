@@ -61,18 +61,25 @@ python organize_cli.py "$@"
 LAUNCHER
 chmod +x "$BIN_DIR/bobnox"
 
-echo "[4/5] Creating desktop launcher..."
+echo "[4/5] Creating desktop launcher and installing icon..."
 mkdir -p "$DESKTOP_DIR"
+mkdir -p "$INSTALL_DIR"
+
+# Copy icon to install dir for desktop integration
+cp "$INSTALL_DIR/BoBnox-icon/Bobnox-icon.png" "$INSTALL_DIR/icon.png" 2>/dev/null || true
+
 cat > "$DESKTOP_DIR/bobnox.desktop" << DESKTOP
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=boBnox File Organizer
+Name=BoBnox
+GenericName=File Organizer
 Comment=Organize files into categorized folders
-Exec=$INSTALL_DIR/run-bobnox.sh
-Icon=folder-open
+Exec=$BIN_DIR/bobnox-gui
+Icon=$INSTALL_DIR/icon.png
 Terminal=false
 Categories=Utility;FileTools;
+StartupWMClass=bobnox
 StartupNotify=true
 DESKTOP
 
@@ -87,7 +94,14 @@ python bobnox.py
 GUI_LAUNCHER
 chmod +x "$BIN_DIR/bobnox-gui"
 
-echo "[5/5] Verifying installation..."
+echo "[5/5] Refreshing desktop database..."
+if command -v update-desktop-database &> /dev/null; then
+    update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+fi
+if command -v gtk-update-icon-cache &> /dev/null; then
+    gtk-update-icon-cache -f "$HOME/.local/share/icons/" 2>/dev/null || true
+fi
+
 if echo "$PATH" | grep -q "$BIN_DIR"; then
     PATH_OK=true
 else
