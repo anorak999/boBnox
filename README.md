@@ -20,7 +20,7 @@ A minimal, elegant file organizer with a dark theme UI that automatically sorts 
 ### One-Line Install (Linux/macOS)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/install.sh | bash
 ```
 
 This will:
@@ -33,7 +33,7 @@ This will:
 ### Uninstall
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/main/uninstall.sh | bash
+curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/uninstall.sh | bash
 ```
 
 Or manually:

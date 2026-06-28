@@ -1,6 +1,6 @@
 #!/bin/bash
 # boBnox Uninstaller
-# Usage: curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/main/uninstall.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/uninstall.sh | bash
 
 INSTALL_DIR="$HOME/.local/share/bobnox"
 BIN_DIR="$HOME/.local/bin"

@@ -1,11 +1,12 @@
 #!/bin/bash
 # boBnox Installer - One-line installation
-# Usage: curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/main/install.sh | bash
-# Or:    wget -qO- https://raw.githubusercontent.com/anorak999/boBnox/main/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/install.sh | bash
+# Or:    wget -qO- https://raw.githubusercontent.com/anorak999/boBnox/Home/install.sh | bash
 
 set -e
 
 REPO="https://github.com/anorak999/boBnox.git"
+BRANCH="Home"
 INSTALL_DIR="$HOME/.local/share/bobnox"
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
@@ -38,7 +39,7 @@ if [ -d "$INSTALL_DIR" ]; then
     echo "  Updating existing installation..."
     git -C "$INSTALL_DIR" pull --quiet
 else
-    git clone --quiet "$REPO" "$INSTALL_DIR"
+    git clone --quiet --branch "$BRANCH" "$REPO" "$INSTALL_DIR"
 fi
 
 echo "[2/5] Setting up Python virtual environment..."
