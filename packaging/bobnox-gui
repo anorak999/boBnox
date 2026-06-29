@@ -1,2 +1,34 @@
 #!/bin/sh
-exec python3 /usr/lib/bobnox/bobnox.py
+# BoBnox v5.0.0 GUI Launcher
+# Starts the FastAPI backend server and opens the web UI
+
+BOBNOX_DIR="/usr/lib/bobnox"
+PORT=8420
+
+# Start backend server in background
+cd "$BOBNOX_DIR"
+python3 -m backend.server &
+SERVER_PID=$!
+
+# Wait for server to start
+sleep 2
+
+# Open browser
+URL="http://127.0.0.1:${PORT}"
+if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$URL"
+elif command -v gnome-open >/dev/null 2>&1; then
+    gnome-open "$URL"
+elif command -v firefox >/dev/null 2>&1; then
+    firefox "$URL" &
+elif command -v chromium-browser >/dev/null 2>&1; then
+    chromium-browser "$URL" &
+elif command -v google-chrome >/dev/null 2>&1; then
+    google-chrome "$URL" &
+else
+    echo "BoBnox server running at: $URL"
+    echo "Open this URL in your browser."
+fi
+
+# Keep running until server exits
+wait $SERVER_PID
