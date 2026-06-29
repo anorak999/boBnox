@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-VERSION="4.1.0"
+VERSION="5.0.0"
 PKG_NAME="bobnox"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
