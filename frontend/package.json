@@ -1,12 +1,33 @@
 {
-  "name": "frontend",
+  "name": "bobnox",
   "private": true,
-  "version": "0.0.0",
+  "version": "5.0.0",
   "type": "module",
+  "main": "electron/main.ts",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "vite & sleep 2 && electron .",
+    "electron:build": "vue-tsc -b && vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.bobnox.app",
+    "productName": "BoBnox",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility"
+    },
+    "mac": {
+      "target": ["dmg"]
+    },
+    "win": {
+      "target": ["nsis"]
+    }
   },
   "dependencies": {
     "pinia": "^3.0.4",
@@ -17,6 +38,7 @@
     "@types/node": "^24.13.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/tsconfig": "^0.9.1",
+    "electron": "^42.5.0",
     "tailwindcss": "^4.3.1",
     "typescript": "~6.0.2",
     "vite": "^8.1.0",
