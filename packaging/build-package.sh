@@ -27,10 +27,23 @@ cp "$PROJECT_DIR/organize_cli.py" "$STAGE_DIR/usr/lib/$PKG_NAME/"
 cp "$PROJECT_DIR/requirements.txt" "$STAGE_DIR/usr/lib/$PKG_NAME/"
 cp -r "$PROJECT_DIR/backend" "$STAGE_DIR/usr/lib/$PKG_NAME/"
 
-echo "[2/5] Staging frontend assets..."
+echo "[2/5] Staging frontend + Electron..."
 cp -r "$PROJECT_DIR/Geist" "$STAGE_DIR/usr/lib/$PKG_NAME/"
 cp -r "$PROJECT_DIR/assets" "$STAGE_DIR/usr/lib/$PKG_NAME/"
 cp -r "$PROJECT_DIR/BoBnox-icon" "$STAGE_DIR/usr/lib/$PKG_NAME/"
+
+# Copy built frontend (static files)
+if [ -d "$PROJECT_DIR/frontend/dist" ]; then
+    cp -r "$PROJECT_DIR/frontend/dist" "$STAGE_DIR/usr/lib/$PKG_NAME/"
+    echo "  Included built frontend from frontend/dist/"
+else
+    echo "  WARNING: frontend/dist/ not found. Run 'cd frontend && npm run build' first."
+fi
+
+# Copy Electron main process files
+mkdir -p "$STAGE_DIR/usr/lib/$PKG_NAME/electron"
+cp "$PROJECT_DIR/frontend/electron/main.js" "$STAGE_DIR/usr/lib/$PKG_NAME/electron/"
+cp "$PROJECT_DIR/frontend/electron/preload.js" "$STAGE_DIR/usr/lib/$PKG_NAME/electron/"
 
 echo "[3/5] Installing launcher scripts..."
 cp "$SCRIPT_DIR/bobnox" "$STAGE_DIR/usr/bin/bobnox"

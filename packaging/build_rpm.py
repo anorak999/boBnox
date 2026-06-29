@@ -63,6 +63,7 @@ Source0:        {pkg_name}-{version}.tar.gz
 
 Requires:       python3 >= 3.10
 Requires:       python3-pillow
+Recommends:     electron
 Recommends:     python3-magic
 Recommends:     python3-inotify-simple
 Recommends:     python3-cairosvg
@@ -160,6 +161,7 @@ BuildArch:      noarch
 
 Requires:       python3 >= 3.10
 Requires:       python3-pillow
+Recommends:     electron
 Recommends:     python3-magic
 Recommends:     python3-inotify-simple
 Recommends:     python3-cairosvg
