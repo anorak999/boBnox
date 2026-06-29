@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python3 /usr/lib/bobnox/organize_cli.py "$@"

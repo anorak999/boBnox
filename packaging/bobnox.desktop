@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=BoBnox
+GenericName=File Organizer
+Comment=Organize files into categorized folders
+Exec=/usr/bin/bobnox-gui
+Icon=bobnox
+Terminal=false
+Categories=Utility;FileTools;
+StartupWMClass=bobnox
+StartupNotify=true
+Keywords=file;organizer;sort;files;
