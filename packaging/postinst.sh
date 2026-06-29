@@ -15,3 +15,8 @@ fi
 if command -v fc-cache &>/dev/null; then
     fc-cache -f 2>/dev/null || true
 fi
+
+# Install Python dependencies if pip is available
+if command -v pip3 &>/dev/null; then
+    pip3 install --quiet fastapi uvicorn websockets pydantic 2>/dev/null || true
+fi

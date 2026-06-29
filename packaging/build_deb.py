@@ -64,7 +64,7 @@ Description: Modern file organizer with Bento Grid dark UI
  BoBnox is a file organizer for Linux that automatically sorts files into
  categorized folders. Features include advanced deduplication, real-time
  file system monitoring, and a transactional rollback ledger.
-Depends: python3 (>= 3.10), python3-tk, python3-pil, zenity, libmagic1
+Depends: python3 (>= 3.10), python3-pil
 Recommends: python3-magic, python3-inotify-simple, python3-cairosvg
 Section: utils
 Priority: optional

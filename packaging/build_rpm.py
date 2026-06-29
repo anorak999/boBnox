@@ -62,10 +62,8 @@ BuildArch:      noarch
 Source0:        {pkg_name}-{version}.tar.gz
 
 Requires:       python3 >= 3.10
-Requires:       python3-tkinter
 Requires:       python3-pillow
-Requires:       zenity
-Requires:       python-magic
+Recommends:     python3-magic
 Recommends:     python3-inotify-simple
 Recommends:     python3-cairosvg
 
@@ -161,10 +159,8 @@ URL:            https://github.com/anorak999/boBnox
 BuildArch:      noarch
 
 Requires:       python3 >= 3.10
-Requires:       python3-tkinter
 Requires:       python3-pillow
-Requires:       zenity
-Requires:       python-magic
+Recommends:     python3-magic
 Recommends:     python3-inotify-simple
 Recommends:     python3-cairosvg
 

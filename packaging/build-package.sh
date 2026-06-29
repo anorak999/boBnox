@@ -41,6 +41,10 @@ cp "$PROJECT_DIR/BoBnox-icon/Bobnox-icon.png" "$STAGE_DIR/usr/share/icons/$PKG_N
 cp "$PROJECT_DIR/README.md" "$STAGE_DIR/usr/share/doc/$PKG_NAME/"
 cp "$PROJECT_DIR/LICENSE" "$STAGE_DIR/usr/share/doc/$PKG_NAME/"
 
+echo "[4/5] Cleaning up..."
+find "$STAGE_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find "$STAGE_DIR" -name "*.pyc" -delete 2>/dev/null || true
+
 echo "[4/5] Building packages..."
 python3 "$SCRIPT_DIR/build_deb.py" \
     --stage "$STAGE_DIR" \
