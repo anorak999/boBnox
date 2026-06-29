@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #161618;
+  --card: #242426;
+  --text: #F5F5F7;
+  --muted: #98989D;
+  --border: #2C2C2E;
+  --entry: #2C2C2E;
+  --btn: #2C2C2E;
+  --btn-hover: #3A3A3C;
+  --accent-blue: #007AFF;
+  --accent-green: #34C759;
+  --accent-coral: #FF3B30;
+  --accent-orange: #FF9500;
+}
+
+html:not(.dark) {
+  --bg: #F5F5F7;
+  --card: #FFFFFF;
+  --text: #1D1D1F;
+  --muted: #6E6E73;
+  --border: #E5E5EA;
+  --entry: #F2F2F7;
+  --btn: #F2F2F7;
+  --btn-hover: #E5E5EA;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.btn {
+  background: var(--btn);
+  color: var(--text);
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn:hover { background: var(--btn-hover); }
+
+.btn-primary {
+  background: var(--accent-green);
+  color: #fff;
+}
+.btn-primary:hover { background: #2DB84D; }
+
+.btn-blue {
+  background: var(--accent-blue);
+  color: #fff;
+}
+.btn-blue:hover { background: #005FCC; }
+
+.input {
+  background: var(--entry);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.input:focus { border-color: var(--accent-blue); }
+
+.progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent-blue);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.console {
+  background: #1C1C1E;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  color: var(--text);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  max-height: 300px;
+}
