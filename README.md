@@ -1,80 +1,71 @@
+<div align="center">
+
 # boBnox
 
-![Build status](https://img.shields.io/github/actions/workflow/status/anorak999/boBnox/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI) ![GitHub stars](https://img.shields.io/github/stars/anorak999/boBnox?style=for-the-badge&logo=github) ![GitHub forks](https://img.shields.io/github/forks/anorak999/boBnox?style=for-the-badge&logo=github) ![GitHub issues](https://img.shields.io/github/issues/anorak999/boBnox?style=for-the-badge&logo=github) ![Last commit](https://img.shields.io/github/last-commit/anorak999/boBnox?style=for-the-badge&logo=github) ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+**A file organization engine built with Python.**
 
-## 📑 Table of Contents
+![Version](https://img.shields.io/badge/version-4.2.0-blue?style=flat-square)
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+![Docker](https://img.shields.io/badge/docker-enabled-2496ED?style=flat-square&logo=docker&logoColor=white)
 
-- [Description](#description)
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Uninstallation](#uninstallation)
-- [CLI Usage](#cli-usage)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Deployment](#deployment)
-- [Contributing](#contributing)
+<br>
 
-## 📝 Description
+<img src="BoBnox-icon/Bobnox-icon.png" width="120" alt="boBnox icon">
 
-boBnox — a modern file organizer with Bento Grid dark UI, built with customtkinter and Geist font. Automatically sorts files into categorized folders with advanced deduplication, entropy analysis, and inotify daemon support.
+<br>
 
-## ✨ Features
+Automatic file sorting. Deduplication. Entropy analysis. One command.
 
-- **Smart Organization**: Automatically categorizes files by extension into organized folders
-- **Dry Run Mode**: Preview changes before moving any files
-- **Undo Support**: Restore files to their original locations with one click
-- **Recursive Sorting**: Organize files in subdirectories
-- **JSON Configuration**: Customize extension mappings via `~/.config/bobnox/config.json`
-- **CLI Tool**: Full command-line interface for scripting and automation
-- **MIME Sorting**: Content-based file classification using magic bytes
-- **Entropy Analysis**: Detect encrypted/random files and quarantine them
-- **Deduplication**: SHA-256 hash-based duplicate detection with reflink support
-- **inotify Daemon**: Real-time file system monitoring
-- **SQLite Ledger**: Transactional rollback with ACID compliance
-- **POSIX Guard**: Symlink/root/dotfile quarantine
-- **GTK Conflict Resolution**: Zenity-based collision handling
-- **Theme Toggle**: Light/Dark mode with animated transitions
+</div>
 
-## ⚡ Quick Start
+---
 
-### One-Line Install (Linux/macOS)
+## What it does
+
+boBnox scans a directory, reads file metadata and content signatures, then moves each file into a categorized folder. It handles conflicts, tracks every move in a SQLite ledger, and can undo everything.
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| Smart sorting | Categorizes files by extension or MIME type into organized folders |
+| Dry run | Preview all moves before touching any files |
+| Undo | Roll back any number of previous operations via SQLite ledger |
+| Deduplication | SHA-256 hash-based duplicate detection with reflink support |
+| Entropy filter | Detects encrypted or random data files and quarantines them |
+| MIME validation | Content-based routing using magic bytes, not just extensions |
+| inotify daemon | Watches directories and auto-organizes new files in real time |
+| Regex templates | Custom destination patterns with date, extension, and filename tokens |
+| Light/Dark theme | Toggle between themes with a single switch |
+
+## Quick start
 
 ```bash
+# Install
 curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/install.sh | bash
+
+# Launch GUI
+bobnox-gui
+
+# Or use CLI
+bobnox organize ~/Downloads --dry-run
 ```
 
-### One-Line Uninstall
+## Manual setup
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/uninstall.sh | bash
-```
-
-### Manual Install
-
-```bash
-# Clone the repository
 git clone https://github.com/anorak999/boBnox.git
 cd boBnox
-
-# Create & activate a virtualenv
 python3 -m venv venv && source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the GUI
 python bobnox.py
 ```
-
-## 📦 Installation
 
 ### Requirements
 
 - Python 3.10+
-- pip
-- git
-- zenity (Linux, for folder picker)
+- zenity (Linux, for folder picker dialog)
 
 ### Dependencies
 
@@ -86,105 +77,95 @@ python-magic
 inotify-simple
 ```
 
-### Desktop Integration
-
-After installation, the app is available as:
-- **GUI**: `bobnox-gui` command or search "BoBnox" in your apps
-- **CLI**: `bobnox organize --path /path/to/folder`
-- **Config**: `bobnox config --show`
-
-## 🗑️ Uninstallation
+## CLI
 
 ```bash
-# One-line uninstall
-curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/uninstall.sh | bash
+# Organize with preview
+bobnox organize ~/Downloads --dry-run
 
-# Or manually
-rm -rf ~/.local/share/bobnox ~/.local/bin/bobnox ~/.local/bin/bobnox-gui ~/.local/share/applications/bobnox.desktop
-```
-
-## 🖥️ CLI Usage
-
-```bash
-# Organize a folder (dry run first to preview)
-bobnox organize --path ~/Downloads --dry-run
-
-# Actually organize
-bobnox organize --path ~/Downloads
+# Organize for real
+bobnox organize ~/Downloads
 
 # Include subdirectories
-bobnox organize --path ~/Downloads --recursive
+bobnox organize ~/Downloads --recursive
 
-# Use MIME-based sorting
-bobnox organize --path ~/Downloads --use-mime
+# MIME-based sorting
+bobnox organize ~/Downloads --use-mime
 
-# Scan for duplicates
-bobnox organize --path ~/Downloads --dedup
+# Scan duplicates
+bobnox organize ~/Downloads --dedup
 
-# Run in daemon mode (auto-organize new files)
-bobnox organize --path ~/Downloads --daemon
+# Watch mode (auto-organize new files)
+bobnox organize ~/Downloads --daemon
 
-# Undo last operation
+# Undo last batch
 bobnox undo
 
-# View configuration
+# Show config
 bobnox config --show
-bobnox config --list-extensions
 ```
 
-## 🛠️ Tech Stack
+## Configuration
 
-- 🐳 **Docker** — Containerized deployment
-- 🐍 **Python** — Core language
-- 🖼️ **customtkinter** — Modern GUI framework
-- 🔤 **Geist Font** — Clean typography
-- 🗄️ **SQLite** — Transactional ledger
-- 🐧 **inotify** — Linux file system monitoring
+Extension mappings live at `~/.config/bobnox/config.json`. Edit directly or use the Settings dialog in the GUI.
 
-## 📁 Project Structure
-
-```
-boBnox/
-├── bobnox.py              # Main application (GUI + engines)
-├── organize_cli.py        # CLI entry point
-├── install.sh             # One-line installer
-├── uninstall.sh           # Uninstaller
-├── requirements.txt       # Python dependencies
-├── Geist/                 # Geist font family
-├── BoBnox-icon/           # Application icons
-├── assets/                # SVG icons
-├── Dockerfile             # CLI Docker image
-├── Dockerfile.vnc         # VNC GUI image
-├── .github/workflows/     # CI/CD
-└── README.md
+```json
+{
+  "extension_map": {
+    ".pdf": "Documents",
+    ".jpg": "Images",
+    ".mp4": "Videos"
+  },
+  "organize_subdirectories": false,
+  "dark_mode": true
+}
 ```
 
-## 🚢 Deployment
+## Project structure
 
-### Docker CLI
+```
+bobnox.py           # GUI + CLI + all engines (single file)
+organize_cli.py     # CLI entry point
+requirements.txt    # Python dependencies
+Geist/              # Font assets
+BoBnox-icon/        # App icon
+assets/             # SVG assets
+install.sh          # One-line installer
+uninstall.sh        # Uninstaller
+packaging/          # deb/rpm build scripts
+Dockerfile          # CLI container
+Dockerfile.vnc      # GUI container (VNC)
+```
+
+## Docker
 
 ```bash
-docker pull ghcr.io/anorak999/bobnox:latest
-docker run --rm -v /path/to/folder:/data ghcr.io/anorak999/bobnox:latest organize --path /data
-```
+# CLI mode
+docker run --rm -v ~/Downloads:/data ghcr.io/anorak999/bobnox:latest organize --path /data
 
-### Docker with GUI (VNC)
-
-```bash
+# GUI mode (VNC)
 docker build -f Dockerfile.vnc -t bobnox-vnc .
 docker run --rm -p 6080:6080 -v $HOME:$HOME bobnox-vnc
 # Open http://localhost:6080/vnc.html
 ```
 
-## 👥 Contributing
+## Uninstall
 
-Contributions are welcome! Here's the standard flow:
+```bash
+curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/uninstall.sh | bash
+```
 
-1. **Fork** the repository
-2. **Clone** your fork: `git clone https://github.com/anorak999/boBnox.git`
-3. **Branch**: `git checkout -b feature/your-feature`
-4. **Commit**: `git commit -m 'feat: add some feature'`
-5. **Push**: `git push origin feature/your-feature`
-6. **Open** a pull request
+## Contributing
 
-Please follow the existing code style and include tests for new behavior where applicable.
+1. Fork the repo
+2. Create a branch (`git checkout -b feature/your-feature`)
+3. Commit (`git commit -m 'feat: add feature'`)
+4. Push and open a PR
+
+---
+
+<div align="center">
+
+Built with Python. Runs anywhere.
+
+</div>
