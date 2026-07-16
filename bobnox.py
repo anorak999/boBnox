@@ -1239,7 +1239,7 @@ class BoBnoxApp(ctk.CTk):
         self.log_messages = []
         self.running = False
 
-        self.title("BoBnox v4.1.0")
+        self.title("BoBnox v4.2.0")
         self.geometry("1200x820")
         self.minsize(960, 680)
 
@@ -1403,7 +1403,7 @@ class BoBnoxApp(ctk.CTk):
         sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew", padx=12, pady=12)
 
         ctk.CTkLabel(sidebar, text="boBnox", font=self.F_TITLE, text_color=self.C_TEXT).pack(anchor="w", padx=20, pady=(24, 4))
-        ctk.CTkLabel(sidebar, text="v4.0.0", font=(gf, 11), text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
+        ctk.CTkLabel(sidebar, text="v4.2.0", font=(gf, 11), text_color=self.C_MUTED).pack(anchor="w", padx=20, pady=(0, 16))
         ctk.CTkFrame(sidebar, height=1, fg_color=self.C_BORDER).pack(fill="x", padx=16, pady=8)
 
         self.theme_switch = ctk.CTkSwitch(sidebar, text="Dark Mode", command=self._toggle_theme, font=(gf, 11), text_color=self.C_TEXT, progress_color=ACCENT_BLUE, fg_color=("#AEAEB2", "#48484A"), button_color="#FFFFFF", button_hover_color=("#F0F0F0", "#E0E0E0"))
@@ -1545,7 +1545,7 @@ class BoBnoxApp(ctk.CTk):
 
         self.console = ctk.CTkTextbox(monitor, fg_color=("#F8F8FA", "#1C1C1E"), text_color=self.C_TEXT, font=self.F_CONSOLE, corner_radius=INPUT_RADIUS, border_color=self.C_BORDER, border_width=1)
         self.console.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
-        self.console.insert("end", ">> boBnox v4.0.0 initialized.\n>> Awaiting target directory...\n")
+        self.console.insert("end", ">> boBnox v4.2.0 initialized.\n>> Awaiting target directory...\n")
         self.console.configure(state="disabled")
 
     def _toggle_theme(self):
