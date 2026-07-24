@@ -59,7 +59,7 @@ def build_deb(stage_dir, output_dir, version):
 Version: {deb_ver}
 Architecture: {arch}
 Maintainer: BoBnox Contributors <bobnox@example.com>
-Homepage: https://github.com/anorak999/boBnox
+Homepage: https://github.com/Himath-Rajapaksha/boBnox
 Description: Modern file organizer with Bento Grid dark UI
  BoBnox is a file organizer for Linux that automatically sorts files into
  categorized folders. Features include advanced deduplication, real-time

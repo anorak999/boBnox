@@ -1,11 +1,11 @@
 #!/bin/bash
 # boBnox Installer - One-line installation
-# Usage: curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/install.sh | bash
-# Or:    wget -qO- https://raw.githubusercontent.com/anorak999/boBnox/Home/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/Himath-Rajapaksha/boBnox/Home/install.sh | bash
+# Or:    wget -qO- https://raw.githubusercontent.com/Himath-Rajapaksha/boBnox/Home/install.sh | bash
 
 set -e
 
-REPO="https://github.com/anorak999/boBnox.git"
+REPO="https://github.com/Himath-Rajapaksha/boBnox.git"
 BRANCH="Home"
 INSTALL_DIR="$HOME/.local/share/bobnox"
 BIN_DIR="$HOME/.local/bin"

@@ -116,11 +116,11 @@ rm -rf /tmp/test-organize
 
 ```bash
 # Tag for GitHub Container Registry
-docker tag bobnox:test ghcr.io/anorak999/bobnox:latest
+docker tag bobnox:test ghcr.io/Himath-Rajapaksha/bobnox:latest
 
 # Login to GHCR
-echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u anorak999 --password-stdin
+echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u Himath-Rajapaksha --password-stdin
 
 # Push
-docker push ghcr.io/anorak999/bobnox:latest
+docker push ghcr.io/Himath-Rajapaksha/bobnox:latest
 ```

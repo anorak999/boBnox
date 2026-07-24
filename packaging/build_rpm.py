@@ -57,7 +57,7 @@ Version:        {version}
 Release:        {release}%{{?dist}}
 Summary:        Modern file organizer with Bento Grid dark UI
 License:        MIT
-URL:            https://github.com/anorak999/boBnox
+URL:            https://github.com/Himath-Rajapaksha/boBnox
 BuildArch:      noarch
 Source0:        {pkg_name}-{version}.tar.gz
 
@@ -157,7 +157,7 @@ Version:        {version}
 Release:        {release}%{{?dist}}
 Summary:        Modern file organizer with Bento Grid dark UI
 License:        MIT
-URL:            https://github.com/anorak999/boBnox
+URL:            https://github.com/Himath-Rajapaksha/boBnox
 BuildArch:      noarch
 
 Requires:       python3 >= 3.10

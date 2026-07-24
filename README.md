@@ -43,7 +43,7 @@ boBnox scans a directory, reads file metadata and content signatures, then moves
 
 ```bash
 # Install
-curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Himath-Rajapaksha/boBnox/Home/install.sh | bash
 
 # Launch GUI
 bobnox-gui
@@ -55,7 +55,7 @@ bobnox organize ~/Downloads --dry-run
 ## Manual setup
 
 ```bash
-git clone https://github.com/anorak999/boBnox.git
+git clone https://github.com/Himath-Rajapaksha/boBnox.git
 cd boBnox
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
@@ -141,7 +141,7 @@ Dockerfile.vnc      # GUI container (VNC)
 
 ```bash
 # CLI mode
-docker run --rm -v ~/Downloads:/data ghcr.io/anorak999/bobnox:latest organize --path /data
+docker run --rm -v ~/Downloads:/data ghcr.io/Himath-Rajapaksha/bobnox:latest organize --path /data
 
 # GUI mode (VNC)
 docker build -f Dockerfile.vnc -t bobnox-vnc .
@@ -152,7 +152,7 @@ docker run --rm -p 6080:6080 -v $HOME:$HOME bobnox-vnc
 ## Uninstall
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/anorak999/boBnox/Home/uninstall.sh | bash
+curl -sSL https://raw.githubusercontent.com/Himath-Rajapaksha/boBnox/Home/uninstall.sh | bash
 ```
 
 ## Contributing

@@ -183,18 +183,18 @@ Tag and push to GitHub Container Registry:
 
 ```bash
 # Build
-docker build -f Dockerfile.vnc -t ghcr.io/anorak999/bobnox-vnc:latest .
+docker build -f Dockerfile.vnc -t ghcr.io/Himath-Rajapaksha/bobnox-vnc:latest .
 
 # Login
-echo $GITHUB_TOKEN | docker login ghcr.io -u anorak999 --password-stdin
+echo $GITHUB_TOKEN | docker login ghcr.io -u Himath-Rajapaksha --password-stdin
 
 # Push
-docker push ghcr.io/anorak999/bobnox-vnc:latest
+docker push ghcr.io/Himath-Rajapaksha/bobnox-vnc:latest
 ```
 
 Users can then run:
 ```bash
-docker run --rm -p 6080:6080 -v $HOME:$HOME ghcr.io/anorak999/bobnox-vnc:latest
+docker run --rm -p 6080:6080 -v $HOME:$HOME ghcr.io/Himath-Rajapaksha/bobnox-vnc:latest
 ```
 
 And access at http://localhost:6080/vnc.html
